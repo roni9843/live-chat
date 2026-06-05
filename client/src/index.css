@@ -1,0 +1,92 @@
+@import "tailwindcss";
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+* {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  box-sizing: border-box;
+}
+
+@layer utilities {
+  @keyframes slideUp {
+    0% { opacity: 0; transform: translateY(12px) scale(0.97); }
+    100% { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  .animate-slide-up {
+    animation: slideUp 0.22s cubic-bezier(0.175, 0.885, 0.32, 1.1) forwards;
+  }
+
+  @keyframes highlightMessage {
+    0% { filter: brightness(1.5); }
+    50% { filter: brightness(1.4); }
+    100% { filter: brightness(1); }
+  }
+
+  .animate-highlight {
+    animation: highlightMessage 2s ease-out;
+  }
+
+  @keyframes widgetOpen {
+    0% { opacity: 0; transform: translateY(16px) scale(0.95); }
+    100% { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  .animate-widget-open {
+    animation: widgetOpen 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.15) forwards;
+  }
+
+  /* WhatsApp-style scrollbar */
+  .wa-scroll::-webkit-scrollbar {
+    width: 5px;
+  }
+  .wa-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .wa-scroll::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 3px;
+  }
+
+  /* Typing dot animation */
+  @keyframes typingDot {
+    0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+    30% { transform: translateY(-5px); opacity: 1; }
+  }
+
+  .typing-dot {
+    animation: typingDot 1.2s ease-in-out infinite;
+  }
+  .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+  .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+  /* Message tail outgoing */
+  .msg-tail-out::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: -7px;
+    width: 0;
+    height: 0;
+    border-left: 7px solid #d9fdd3;
+    border-top: 7px solid transparent;
+  }
+  .msg-tail-out-dark::after {
+    border-left-color: #005c4b;
+  }
+
+  /* Message tail incoming */
+  .msg-tail-in::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -7px;
+    width: 0;
+    height: 0;
+    border-right: 7px solid white;
+    border-top: 7px solid transparent;
+  }
+  .msg-tail-in-dark::after {
+    border-right-color: #26262b;
+  }
+}
