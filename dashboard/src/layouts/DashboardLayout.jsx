@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
-import { MessageSquare, User, Settings, LogOut, MessageCircle, Bell, Check, X } from 'lucide-react';
+import { MessageSquare, User, Settings, LogOut, MessageCircle, Bell, Check, X, Phone, PhoneOff } from 'lucide-react';
 import axios from 'axios';
 import useAuthStore from '../store/authStore';
 import useChatStore from '../store/chatStore';
@@ -10,12 +10,49 @@ const API_URL = import.meta.env.VITE_API_URL || 'https://jh5nng6t-5000.asse.devt
 
 function DashboardLayout() {
   const { user, logout, fetchProfile } = useAuthStore();
-  const { totalUnread, activeSessionId } = useChatStore();
+  const { totalUnread, activeSessionId, setActiveSessionId } = useChatStore();
   const navigate = useNavigate();
   const location = useLocation();
   const [invites, setInvites] = useState([]);
   const [showInvites, setShowInvites] = useState(false);
   const popoverRef = useRef(null);
+
+  const [incomingCall, setIncomingCall] = useState(null);
+
+  useEffect(() => {
+    const handleGlobalIncoming = (e) => {
+      setIncomingCall(e.detail);
+    };
+
+    const handleGlobalDismiss = (e) => {
+      const { sessionId } = e.detail || {};
+      setIncomingCall(prev => (prev && prev.sessionId === sessionId) ? null : prev);
+    };
+
+    window.addEventListener('global_incoming_call', handleGlobalIncoming);
+    window.addEventListener('global_call_dismiss', handleGlobalDismiss);
+
+    return () => {
+      window.removeEventListener('global_incoming_call', handleGlobalIncoming);
+      window.removeEventListener('global_call_dismiss', handleGlobalDismiss);
+    };
+  }, []);
+
+  const handleGlobalAccept = () => {
+    if (!incomingCall) return;
+    const { sessionId } = incomingCall;
+    setActiveSessionId(sessionId);
+    navigate('/');
+    window.dispatchEvent(new CustomEvent('global_call_accepted', { detail: { sessionId } }));
+    setIncomingCall(null);
+  };
+
+  const handleGlobalDecline = () => {
+    if (!incomingCall) return;
+    const { sessionId } = incomingCall;
+    window.dispatchEvent(new CustomEvent('global_decline_call', { detail: { sessionId } }));
+    setIncomingCall(null);
+  };
 
   const fetchInvites = async () => {
     try {
@@ -214,6 +251,35 @@ function DashboardLayout() {
           <Outlet />
         </div>
       </div>
+
+      {/* Global Incoming Call Popup */}
+      {incomingCall && (
+        <div className="fixed bottom-6 right-6 z-[9999] bg-[#202c33] border border-[#2a3942] rounded-2xl p-4 shadow-2xl flex items-center space-x-4 max-w-sm animate-in fade-in slide-in-from-bottom-5 duration-200">
+          <div className="w-12 h-12 rounded-full bg-[#00a884] flex items-center justify-center text-white font-bold text-lg flex-shrink-0 animate-pulse">
+            {incomingCall.visitorName ? incomingCall.visitorName.charAt(0).toUpperCase() : 'G'}
+          </div>
+          <div className="flex-1 min-w-0">
+            <h4 className="text-sm font-bold text-white truncate">{incomingCall.visitorName || 'Guest Visitor'}</h4>
+            <p className="text-xs text-gray-400 mt-0.5">Incoming Voice Call...</p>
+          </div>
+          <div className="flex items-center space-x-2 flex-shrink-0">
+            <button
+              onClick={handleGlobalDecline}
+              className="p-2.5 rounded-full bg-red-600 hover:bg-red-700 text-white shadow-md transition active:scale-95 cursor-pointer"
+              title="Decline"
+            >
+              <PhoneOff size={16} />
+            </button>
+            <button
+              onClick={handleGlobalAccept}
+              className="p-2.5 rounded-full bg-emerald-500 hover:bg-emerald-600 text-white shadow-md transition active:scale-95 cursor-pointer animate-bounce"
+              title="Accept"
+            >
+              <Phone size={16} className="fill-white" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

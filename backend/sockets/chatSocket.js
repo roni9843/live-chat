@@ -36,6 +36,7 @@ module.exports = (io) => {
       if (Object.keys(sessionViewers[prevSessionId]).length === 0) {
         delete sessionViewers[prevSessionId];
       }
+      sk.leave(`session_${prevSessionId}`);
       sk.viewingSessionId = null;
       sendActiveViewersUpdate(prevSessionId);
     }
@@ -373,6 +374,7 @@ module.exports = (io) => {
       if (sessionId) {
         socket.viewingSessionId = sessionId;
         socket.agentInfo = { agentId, name, profilePic };
+        socket.join(`session_${sessionId}`);
         
         if (!sessionViewers[sessionId]) {
           sessionViewers[sessionId] = {};
@@ -391,6 +393,70 @@ module.exports = (io) => {
         }
       } catch (err) {
         console.error('Error closing session', err);
+      }
+    });
+
+    // WebRTC calling events
+    socket.on('call_request', async ({ sessionId, callerName, callerType }) => {
+      try {
+        const session = await ChatSession.findById(sessionId);
+        if (!session || session.status === 'closed') return;
+
+        const roomName = `session_${sessionId}`;
+
+        if (callerType === 'visitor') {
+          // If visitor calls, notify the merchant room globally so the agent gets it anywhere.
+          // Agents viewing the chat are also listening to the merchant room, so this avoids duplicate event delivery.
+          if (session.merchantId) {
+            await notifyMerchants(session.merchantId, sessionId, 'incoming_call', {
+              sessionId,
+              callerName,
+              callerType,
+              visitorName: session.visitorName
+            });
+          }
+        } else {
+          // If merchant calls, broadcast incoming call to the visitor in the session room
+          socket.to(roomName).emit('incoming_call', {
+            sessionId,
+            callerName,
+            callerType,
+            visitorName: session.visitorName
+          });
+        }
+      } catch (err) {
+        console.error('Error in call_request socket event:', err);
+      }
+    });
+
+
+    socket.on('call_accept', ({ sessionId }) => {
+      socket.to(`session_${sessionId}`).emit('call_accepted', { sessionId });
+    });
+
+    socket.on('call_reject', ({ sessionId, reason }) => {
+      socket.to(`session_${sessionId}`).emit('call_rejected', { sessionId, reason });
+      if (socket.merchantId) {
+        io.to(socket.merchantId.toString()).emit('call_rejected', { sessionId, reason });
+      }
+    });
+
+    socket.on('webrtc_offer', ({ sessionId, offer }) => {
+      socket.to(`session_${sessionId}`).emit('webrtc_offer_received', { sessionId, offer });
+    });
+
+    socket.on('webrtc_answer', ({ sessionId, answer }) => {
+      socket.to(`session_${sessionId}`).emit('webrtc_answer_received', { sessionId, answer });
+    });
+
+    socket.on('webrtc_ice', ({ sessionId, candidate }) => {
+      socket.to(`session_${sessionId}`).emit('webrtc_ice_received', { sessionId, candidate });
+    });
+
+    socket.on('call_hangup', ({ sessionId }) => {
+      socket.to(`session_${sessionId}`).emit('call_hungup', { sessionId });
+      if (socket.merchantId) {
+        io.to(socket.merchantId.toString()).emit('call_hungup', { sessionId });
       }
     });
 

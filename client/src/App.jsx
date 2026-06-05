@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MessageCircle, X, Send, Paperclip, Smile, CornerUpLeft, ChevronLeft, MoreVertical, Globe, ShieldCheck, Lock, Mic, Play, Pause, Trash2 } from 'lucide-react';
+import { MessageCircle, X, Send, Paperclip, Smile, CornerUpLeft, ChevronLeft, MoreVertical, Globe, ShieldCheck, Lock, Mic, MicOff, Play, Pause, Trash2, Phone, PhoneOff } from 'lucide-react';
 import io from 'socket.io-client';
 import EmojiPicker from 'emoji-picker-react';
 
-const SOCKET_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const SOCKET_URL = import.meta.env.VITE_API_URL || 'https://jh5nng6t-5000.asse.devtunnels.ms';
 
 const AudioPlayer = ({ url, primaryColor, isDark, darkTheme }) => {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -92,13 +92,13 @@ const AudioPlayer = ({ url, primaryColor, isDark, darkTheme }) => {
   };
 
   return (
-    <div 
+    <div
       className="flex items-center space-x-2 py-1.5 px-2.5 rounded-xl min-w-[170px] sm:min-w-[210px] max-w-[260px] text-white"
       style={{ backgroundColor: isDark ? 'rgba(0,0,0,0.2)' : 'rgba(0,0,0,0.05)' }}
     >
       <audio ref={audioRef} src={url} preload="metadata" />
-      
-      <button 
+
+      <button
         onClick={togglePlay}
         className="w-7 h-7 rounded-full flex items-center justify-center text-white hover:scale-105 active:scale-95 transition-all flex-shrink-0"
         style={{ backgroundColor: primaryColor }}
@@ -127,11 +127,11 @@ const AudioPlayer = ({ url, primaryColor, isDark, darkTheme }) => {
         </div>
         <div className="flex justify-between items-center mt-0.5 text-[9px]" style={{ color: darkTheme.textSecondary }}>
           <span>{formatAudioTime(currentTime)} / {formatAudioTime(duration || 0)}</span>
-          
-          <button 
+
+          <button
             onClick={handleSpeedToggle}
             className="px-1 py-0.5 rounded text-[8px] font-bold select-none transition-colors"
-            style={{ 
+            style={{
               backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)',
               color: isDark ? '#e9edef' : '#111b21'
             }}
@@ -147,6 +147,8 @@ const AudioPlayer = ({ url, primaryColor, isDark, darkTheme }) => {
 function App({ merchantId, widgetId }) {
   const [isOpen, setIsOpen] = useState(false);
   const [socket, setSocket] = useState(null);
+  const socketRef = useRef(null);
+
   const [messages, setMessages] = useState([]);
   const [inputMessage, setInputMessage] = useState('');
   const [sessionId, setSessionId] = useState(null);
@@ -170,8 +172,52 @@ function App({ merchantId, widgetId }) {
   const [preChatMessage, setPreChatMessage] = useState('');
   const pendingFirstMessageRef = useRef('');
   const [isSessionEnded, setIsSessionEnded] = useState(false);
+  const [visualHeight, setVisualHeight] = useState('100%');
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.visualViewport) return;
+
+    const handleResize = () => {
+      setVisualHeight(`${window.visualViewport.height}px`);
+    };
+
+    window.visualViewport.addEventListener('resize', handleResize);
+    window.visualViewport.addEventListener('scroll', handleResize);
+    handleResize();
+
+    return () => {
+      window.visualViewport.removeEventListener('resize', handleResize);
+      window.visualViewport.removeEventListener('scroll', handleResize);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isOpen) {
+      const isMobile = window.innerWidth <= 640;
+      if (isMobile) {
+        const originalHtmlOverflow = document.documentElement.style.overflow;
+        const originalHtmlHeight = document.documentElement.style.height;
+        const originalBodyOverflow = document.body.style.overflow;
+        const originalBodyHeight = document.body.style.height;
+
+        document.documentElement.style.overflow = 'hidden';
+        document.documentElement.style.height = '100%';
+        document.body.style.overflow = 'hidden';
+        document.body.style.height = '100%';
+
+        return () => {
+          document.documentElement.style.overflow = originalHtmlOverflow;
+          document.documentElement.style.height = originalHtmlHeight;
+          document.body.style.overflow = originalBodyOverflow;
+          document.body.style.height = originalBodyHeight;
+        };
+      }
+    }
+  }, [isOpen]);
+
 
   const [widgetConfig, setWidgetConfig] = useState({
+
     companyName: 'Ochat Support',
     color: '#25D366',
     position: 'right',
@@ -212,10 +258,40 @@ function App({ merchantId, widgetId }) {
   const analyserRef = useRef(null);
   const animationFrameRef = useRef(null);
 
+  // WebRTC Audio Calling States & Refs
+  const [callState, setCallState] = useState('idle'); // 'idle', 'dialing', 'incoming', 'active'
+  const [isCallMuted, setIsCallMuted] = useState(false);
+  const [callDuration, setCallDuration] = useState(0);
+  const [activeAgentName, setActiveAgentName] = useState('');
+
+  const callStateRef = useRef('idle');
+  const updateCallState = (state) => {
+    setCallState(state);
+    callStateRef.current = state;
+  };
+
+  const sessionIdRef = useRef(null);
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
+
+  const localStreamRef = useRef(null);
+  const peerConnectionRef = useRef(null);
+  const ringtoneContextRef = useRef(null);
+  const ringtoneTimerRef = useRef(null);
+  const callTimerRef = useRef(null);
+  const remoteAudioRef = useRef(null);
+  const pendingOfferRef = useRef(null);
+  const pendingAnswerRef = useRef(null);
+  const pendingCandidatesRef = useRef([]);
+  const remoteDescriptionSetRef = useRef(false);
+
+
   useEffect(() => {
     return () => {
       if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
       cleanupVisuals();
+      cleanupCall();
     };
   }, []);
 
@@ -240,6 +316,262 @@ function App({ merchantId, widgetId }) {
     return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
   };
 
+  const playRingtone = (type) => {
+    try {
+      stopRingtone();
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      const ctx = new AudioContextClass();
+      ringtoneContextRef.current = ctx;
+
+      if (type === 'dialing') {
+        const playTone = () => {
+          if (!ringtoneContextRef.current || ringtoneContextRef.current.state === 'closed') return;
+          const osc1 = ctx.createOscillator();
+          const osc2 = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc1.frequency.setValueAtTime(440, ctx.currentTime);
+          osc2.frequency.setValueAtTime(480, ctx.currentTime);
+          gain.gain.setValueAtTime(0.12, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 2.0);
+          osc1.connect(gain);
+          osc2.connect(gain);
+          gain.connect(ctx.destination);
+          osc1.start();
+          osc2.start();
+          osc1.stop(ctx.currentTime + 2.0);
+          osc2.stop(ctx.currentTime + 2.0);
+        };
+        playTone();
+        ringtoneTimerRef.current = setInterval(playTone, 5000);
+      } else if (type === 'ringing') {
+        const playTone = () => {
+          if (!ringtoneContextRef.current || ringtoneContextRef.current.state === 'closed') return;
+          const now = ctx.currentTime;
+          const ring = (delay) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(600, now + delay);
+            let modTime = now + delay;
+            for (let i = 0; i < 8; i++) {
+              osc.frequency.setValueAtTime(i % 2 === 0 ? 600 : 680, modTime);
+              modTime += 0.1;
+            }
+            gain.gain.setValueAtTime(0.0, now + delay);
+            gain.gain.linearRampToValueAtTime(0.15, now + delay + 0.05);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.8);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now + delay);
+            osc.stop(now + delay + 0.8);
+          };
+          ring(0.0);
+          ring(1.0);
+        };
+        playTone();
+        ringtoneTimerRef.current = setInterval(playTone, 4000);
+      }
+    } catch (err) {
+      console.error('Failed to play ringtone:', err);
+    }
+  };
+
+  const stopRingtone = () => {
+    if (ringtoneTimerRef.current) {
+      clearInterval(ringtoneTimerRef.current);
+      ringtoneTimerRef.current = null;
+    }
+    if (ringtoneContextRef.current) {
+      try {
+        if (ringtoneContextRef.current.state !== 'closed') {
+          ringtoneContextRef.current.close();
+        }
+      } catch (e) {
+        console.error(e);
+      }
+      ringtoneContextRef.current = null;
+    }
+  };
+
+  const cleanupCall = () => {
+    stopRingtone();
+    updateCallState('idle');
+    setCallDuration(0);
+    setIsCallMuted(false);
+
+    if (callTimerRef.current) {
+      clearInterval(callTimerRef.current);
+      callTimerRef.current = null;
+    }
+
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => track.stop());
+      localStreamRef.current = null;
+    }
+
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.close();
+      peerConnectionRef.current = null;
+    }
+
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.srcObject = null;
+    }
+
+    pendingOfferRef.current = null;
+    pendingAnswerRef.current = null;
+    pendingCandidatesRef.current = [];
+    remoteDescriptionSetRef.current = false;
+  };
+
+
+  const startCall = () => {
+    if (!socketRef.current || !sessionIdRef.current) return;
+    updateCallState('dialing');
+    setActiveAgentName(widgetConfig.companyName || 'Support Agent');
+    playRingtone('dialing');
+
+    socketRef.current.emit('call_request', {
+      sessionId: sessionIdRef.current,
+      callerName: 'Visitor',
+      callerType: 'visitor'
+    });
+
+    if (callTimerRef.current) clearInterval(callTimerRef.current);
+    let secondsElapsed = 0;
+    callTimerRef.current = setInterval(() => {
+      secondsElapsed++;
+      if (secondsElapsed >= 35) {
+        hangupCall();
+      }
+    }, 1000);
+  };
+
+  const acceptCall = () => {
+    if (!socketRef.current || !sessionIdRef.current) return;
+    stopRingtone();
+    updateCallState('active');
+    setCallDuration(0);
+
+    if (callTimerRef.current) clearInterval(callTimerRef.current);
+    callTimerRef.current = setInterval(() => {
+      setCallDuration(prev => prev + 1);
+    }, 1000);
+
+    socketRef.current.emit('call_accept', { sessionId: sessionIdRef.current });
+    setupWebRTC(false);
+  };
+
+  const rejectCall = () => {
+    if (!socketRef.current || !sessionIdRef.current) return;
+    stopRingtone();
+    socketRef.current.emit('call_reject', { sessionId: sessionIdRef.current, reason: 'declined' });
+    cleanupCall();
+  };
+
+  const hangupCall = () => {
+    if (socketRef.current && sessionIdRef.current) {
+      socketRef.current.emit('call_hangup', { sessionId: sessionIdRef.current });
+    }
+    cleanupCall();
+  };
+
+
+  const toggleCallMute = () => {
+    if (localStreamRef.current) {
+      const audioTrack = localStreamRef.current.getAudioTracks()[0];
+      if (audioTrack) {
+        audioTrack.enabled = !audioTrack.enabled;
+        setIsCallMuted(!audioTrack.enabled);
+      }
+    }
+  };
+
+  const setupWebRTC = async (isCaller) => {
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('secure_context_required');
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+      });
+      localStreamRef.current = stream;
+
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      });
+      peerConnectionRef.current = pc;
+
+      stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+      pc.onicecandidate = (e) => {
+        if (e.candidate && socketRef.current && sessionIdRef.current) {
+          socketRef.current.emit('webrtc_ice', { sessionId: sessionIdRef.current, candidate: e.candidate });
+        }
+      };
+
+      pc.ontrack = (e) => {
+        const remoteStream = e.streams[0];
+        if (remoteAudioRef.current) {
+          remoteAudioRef.current.srcObject = remoteStream;
+          remoteAudioRef.current.play().catch(err => console.error('Error playing remote audio:', err));
+        }
+      };
+
+      // Apply pending offer if received before setupWebRTC completed
+      if (!isCaller && pendingOfferRef.current) {
+        await pc.setRemoteDescription(new RTCSessionDescription(pendingOfferRef.current));
+        remoteDescriptionSetRef.current = true;
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socketRef.current.emit('webrtc_answer', { sessionId: sessionIdRef.current, answer });
+        pendingOfferRef.current = null;
+
+        // Apply any buffered ICE candidates
+        for (const candidate of pendingCandidatesRef.current) {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.error("Error adding buffered candidate:", e));
+        }
+        pendingCandidatesRef.current = [];
+      }
+
+      // Apply pending answer if received before setupWebRTC completed
+      if (isCaller && pendingAnswerRef.current) {
+        await pc.setRemoteDescription(new RTCSessionDescription(pendingAnswerRef.current));
+        remoteDescriptionSetRef.current = true;
+        pendingAnswerRef.current = null;
+
+        // Apply any buffered ICE candidates
+        for (const candidate of pendingCandidatesRef.current) {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.error("Error adding buffered candidate:", e));
+        }
+        pendingCandidatesRef.current = [];
+      }
+
+      if (isCaller && !remoteDescriptionSetRef.current) {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socketRef.current.emit('webrtc_offer', { sessionId: sessionIdRef.current, offer });
+      }
+
+
+    } catch (err) {
+      console.error('Error setting up WebRTC call:', err);
+      if (err.message === 'secure_context_required' || window.location.protocol === 'file:') {
+        alert('Microphone access blocked: WebRTC requires a Secure Context (localhost or HTTPS). Please run your 3rd party web page on a local web server (e.g. npx serve) instead of opening the index.html directly from file://.');
+      } else if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        alert('Microphone permission blocked. Please check your browser address bar: click the settings/lock icon next to the URL, change Microphone permission to "Allow", and reload the page. Also, verify that microphone access is enabled in your computer\'s system settings (Settings > Privacy > Microphone).');
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        alert('No microphone detected. Please check if your microphone is properly plugged in and recognized by your computer.');
+      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+        alert('Your microphone is currently being used by another application (like Discord, Zoom, or another browser tab). Please close those apps and try again.');
+      } else {
+        alert('Could not access microphone: ' + (err.message || err.name || 'Unknown error.'));
+      }
+      cleanupCall();
+    }
+  };
+
+
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -263,7 +595,7 @@ function App({ merchantId, widgetId }) {
       analyserRef.current = analyser;
 
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
-      
+
       const updateVisuals = () => {
         if (analyserRef.current) {
           analyserRef.current.getByteFrequencyData(dataArray);
@@ -279,7 +611,7 @@ function App({ merchantId, widgetId }) {
           animationFrameRef.current = requestAnimationFrame(updateVisuals);
         }
       };
-      
+
       updateVisuals();
 
       recorder.onstop = async () => {
@@ -353,7 +685,7 @@ function App({ merchantId, widgetId }) {
   const cancelRecording = () => {
     cleanupVisuals();
     if (mediaRecorder) {
-      mediaRecorder.onstop = () => {};
+      mediaRecorder.onstop = () => { };
       if (mediaRecorder.state !== 'inactive') {
         mediaRecorder.stop();
       }
@@ -402,6 +734,8 @@ function App({ merchantId, widgetId }) {
     if (isOpen && !socket) {
       const newSocket = io(SOCKET_URL);
       setSocket(newSocket);
+      socketRef.current = newSocket;
+
 
       const visitorId = localStorage.getItem('visitorId') || Math.random().toString(36).substring(7);
       localStorage.setItem('visitorId', visitorId);
@@ -487,6 +821,95 @@ function App({ merchantId, widgetId }) {
 
       newSocket.on('active_viewers_updated', (viewers) => {
         setActiveViewers(viewers || []);
+      });
+
+      // WebRTC Call Listeners
+      newSocket.on('incoming_call', ({ sessionId: cId, callerName, callerType }) => {
+        if (callStateRef.current !== 'idle') {
+          newSocket.emit('call_reject', { sessionId: cId, reason: 'busy' });
+          return;
+        }
+        updateCallState('incoming');
+        setActiveAgentName(callerName || 'Support Agent');
+        playRingtone('ringing');
+      });
+
+      newSocket.on('call_accepted', () => {
+        stopRingtone();
+        updateCallState('active');
+        setCallDuration(0);
+        if (callTimerRef.current) clearInterval(callTimerRef.current);
+        callTimerRef.current = setInterval(() => {
+          setCallDuration(prev => prev + 1);
+        }, 1000);
+        setupWebRTC(true);
+      });
+
+      newSocket.on('call_rejected', ({ reason }) => {
+        cleanupCall();
+        if (reason === 'busy') {
+          alert('Line busy. The agent is currently in another call.');
+        } else {
+          alert('Call declined by agent.');
+        }
+      });
+
+      newSocket.on('webrtc_offer_received', async ({ offer }) => {
+        try {
+          if (peerConnectionRef.current) {
+            await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(offer));
+            remoteDescriptionSetRef.current = true;
+            const answer = await peerConnectionRef.current.createAnswer();
+            await peerConnectionRef.current.setLocalDescription(answer);
+            newSocket.emit('webrtc_answer', { sessionId: sessionIdRef.current, answer });
+
+            // Apply any buffered ICE candidates
+            for (const candidate of pendingCandidatesRef.current) {
+              await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.error("Error adding buffered candidate:", e));
+            }
+            pendingCandidatesRef.current = [];
+          } else {
+            pendingOfferRef.current = offer;
+          }
+        } catch (err) {
+          console.error('Error handling WebRTC offer:', err);
+        }
+      });
+
+      newSocket.on('webrtc_answer_received', async ({ answer }) => {
+        try {
+          if (peerConnectionRef.current) {
+            await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(answer));
+            remoteDescriptionSetRef.current = true;
+
+            // Apply any buffered ICE candidates
+            for (const candidate of pendingCandidatesRef.current) {
+              await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.error("Error adding buffered candidate:", e));
+            }
+            pendingCandidatesRef.current = [];
+          } else {
+            pendingAnswerRef.current = answer;
+          }
+        } catch (err) {
+          console.error('Error handling WebRTC answer:', err);
+        }
+      });
+
+      newSocket.on('webrtc_ice_received', async ({ candidate }) => {
+        try {
+          if (peerConnectionRef.current && remoteDescriptionSetRef.current) {
+            await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+          } else {
+            pendingCandidatesRef.current.push(candidate);
+          }
+        } catch (err) {
+          console.error('Error adding remote ICE candidate:', err);
+        }
+      });
+
+
+      newSocket.on('call_hungup', () => {
+        cleanupCall();
       });
 
       newSocket.on('session_closed', ({ sessionId: closedId }) => {
@@ -592,7 +1015,7 @@ function App({ merchantId, widgetId }) {
     // 3. After 1.2 seconds, send the auto-answer from the merchant
     setTimeout(() => {
       setIsMerchantTyping(false);
-      
+
       const answerMsg = {
         sessionId,
         sender: 'merchant',
@@ -601,7 +1024,7 @@ function App({ merchantId, widgetId }) {
         senderName: widgetConfig.companyName,
         senderProfilePic: widgetConfig.agents?.[0]?.profilePic || ''
       };
-      
+
       socket.emit('send_message', answerMsg);
 
       // Play incoming message pop sound
@@ -630,7 +1053,7 @@ function App({ merchantId, widgetId }) {
         body: formData
       });
       const data = await res.json();
-      
+
       if (data.success && socket && sessionId) {
         socket.emit('send_message', {
           sessionId,
@@ -781,8 +1204,8 @@ function App({ merchantId, widgetId }) {
   const renderPreChatForm = () => {
     const fields = widgetConfig.preChatForm?.fields || {};
     return (
-      <form 
-        onSubmit={handlePreChatSubmit} 
+      <form
+        onSubmit={handlePreChatSubmit}
         className="flex-1 flex flex-col justify-between p-6 overflow-y-auto text-left"
         style={{ backgroundColor: darkTheme.chatBg }}
       >
@@ -894,26 +1317,127 @@ function App({ merchantId, widgetId }) {
     );
   };
 
+  const formatCallTime = (secs) => {
+    const mins = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${mins}:${s < 10 ? '0' : ''}${s}`;
+  };
+
+  const renderCallOverlay = () => {
+    return (
+      <div
+        className="flex-1 flex flex-col items-center justify-between p-8 text-white select-none animate-fade-in"
+        style={{ backgroundColor: '#111b21' }}
+      >
+        <audio ref={remoteAudioRef} className="hidden" autoPlay />
+
+        {/* Top area: Info & Avatar */}
+        <div className="flex flex-col items-center mt-8 space-y-4 w-full">
+          <div className="relative">
+            {(callState === 'dialing' || callState === 'incoming') && (
+              <div className="absolute inset-0 rounded-full bg-emerald-500/20 animate-ping" style={{ animationDuration: '2s' }} />
+            )}
+            {callState === 'active' && (
+              <div className="absolute inset-0 rounded-full bg-emerald-500/10 animate-pulse" />
+            )}
+
+            <div
+              style={{ backgroundColor: primaryColor }}
+              className="w-24 h-24 rounded-full flex items-center justify-center text-white font-bold text-3xl shadow-xl relative z-10"
+            >
+              {activeAgentName.charAt(0).toUpperCase()}
+            </div>
+          </div>
+
+          <h2 className="text-lg font-bold tracking-wide mt-2">{activeAgentName}</h2>
+
+          {callState === 'dialing' && (
+            <p className="text-xs text-emerald-400 font-semibold animate-pulse tracking-widest uppercase">Calling...</p>
+          )}
+          {callState === 'incoming' && (
+            <p className="text-xs text-emerald-400 font-semibold animate-pulse tracking-widest uppercase">Incoming call...</p>
+          )}
+          {callState === 'active' && (
+            <div className="flex flex-col items-center space-y-1">
+              <span className="px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-xs font-bold font-mono tracking-widest">
+                {formatCallTime(callDuration)}
+              </span>
+              <p className="text-[10px] text-gray-400 uppercase tracking-widest">Call in progress</p>
+            </div>
+          )}
+        </div>
+
+        {/* Bottom area: Controls */}
+        <div className="flex items-center justify-center w-full mb-8 space-x-6">
+          {callState === 'incoming' ? (
+            <>
+              {/* Decline Button */}
+              <button
+                onClick={rejectCall}
+                className="w-14 h-14 rounded-full bg-red-600 hover:bg-red-700 flex items-center justify-center text-white shadow-lg transform transition active:scale-95 cursor-pointer"
+                title="Decline Call"
+              >
+                <PhoneOff size={24} />
+              </button>
+
+              {/* Accept Button */}
+              <button
+                onClick={acceptCall}
+                className="w-14 h-14 rounded-full bg-emerald-500 hover:bg-emerald-600 flex items-center justify-center text-white shadow-lg transform transition active:scale-95 cursor-pointer"
+                title="Accept Call"
+              >
+                <Phone size={24} className="fill-white animate-bounce" />
+              </button>
+            </>
+          ) : (
+            <>
+              {/* Mute Button */}
+              {callState === 'active' && (
+                <button
+                  onClick={toggleCallMute}
+                  style={{ backgroundColor: isCallMuted ? '#ef4444' : 'rgba(255,255,255,0.1)' }}
+                  className="w-12 h-12 rounded-full flex items-center justify-center text-white shadow-md hover:bg-white/20 transition active:scale-95 cursor-pointer"
+                  title={isCallMuted ? 'Unmute' : 'Mute'}
+                >
+                  {isCallMuted ? <MicOff size={20} /> : <Mic size={20} />}
+                </button>
+              )}
+
+              {/* End Call Button */}
+              <button
+                onClick={hangupCall}
+                className="w-14 h-14 rounded-full bg-red-600 hover:bg-red-700 flex items-center justify-center text-white shadow-lg transform transition active:scale-95 cursor-pointer"
+                title="End Call"
+              >
+                <PhoneOff size={24} />
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   const containerStyle = {
     position: 'fixed',
     zIndex: 99999,
     ...(isOpen
       ? {
+        bottom: `${widgetConfig.spacingBottom ?? 20}px`,
+        [isRight ? 'right' : 'left']: `${widgetConfig.spacingSide ?? 20}px`
+      }
+      : (isSideTab
+        ? {
+          top: '50%',
+          transform: 'translateY(-50%)',
+          [isRight ? 'right' : 'left']: '0px',
+          bottom: 'auto'
+        }
+        : {
           bottom: `${widgetConfig.spacingBottom ?? 20}px`,
           [isRight ? 'right' : 'left']: `${widgetConfig.spacingSide ?? 20}px`
         }
-      : (isSideTab
-          ? {
-              top: '50%',
-              transform: 'translateY(-50%)',
-              [isRight ? 'right' : 'left']: '0px',
-              bottom: 'auto'
-            }
-          : {
-              bottom: `${widgetConfig.spacingBottom ?? 20}px`,
-              [isRight ? 'right' : 'left']: `${widgetConfig.spacingSide ?? 20}px`
-            }
-        )
+      )
     )
   };
 
@@ -975,12 +1499,14 @@ function App({ merchantId, widgetId }) {
   };
 
   return (
-    <div style={containerStyle} className="font-sans">
+    <div style={{ ...containerStyle, '--visual-height': visualHeight }} className={`font-sans ${isOpen ? 'ochat-container-open' : ''}`}>
+
 
       {/* Chat Window */}
       {isOpen && (
         <div
-          className="mb-4 flex flex-col overflow-hidden shadow-2xl animate-widget-open"
+          className="mb-4 flex flex-col overflow-hidden shadow-2xl animate-widget-open ochat-window"
+
           style={{
             width: '360px',
             maxWidth: `calc(100vw - ${(widgetConfig.spacingSide ?? 20) * 2}px)`,
@@ -1032,6 +1558,15 @@ function App({ merchantId, widgetId }) {
               <span className="text-[10px] font-semibold text-white/80 max-w-[120px] truncate pr-1" title={widgetConfig.companyName}>
                 {widgetConfig.companyName}
               </span>
+              {sessionId && !isSessionEnded && (
+                <button
+                  onClick={startCall}
+                  className="text-white hover:opacity-75 transition-opacity p-1.5 rounded hover:bg-white/10 flex items-center justify-center cursor-pointer"
+                  title="Voice Call"
+                >
+                  <Phone size={15} className="fill-white" />
+                </button>
+              )}
               <button
                 onClick={() => {
                   setSelectedAgentProfile(null);
@@ -1187,6 +1722,8 @@ function App({ merchantId, widgetId }) {
             </div>
           ) : widgetConfig.preChatForm?.enabled && !isPreChatSubmitted ? (
             renderPreChatForm()
+          ) : callState !== 'idle' ? (
+            renderCallOverlay()
           ) : (
             <>
               {/* Messages Area */}
@@ -1216,11 +1753,11 @@ function App({ merchantId, widgetId }) {
                 {messages.length === 0 && (
                   <div className="flex justify-center mb-2">
                     <span className="text-[10px] px-2.5 py-1 rounded-md flex items-center space-x-1"
-                      style={{ 
-                        backgroundColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.05)', 
-                        color: isDark ? '#ffffff' : '#54656f' 
+                      style={{
+                        backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)',
+                        color: isDark ? '#8696a0' : '#8696a0'
                       }}>
-                      <Lock size={11} className={isDark ? 'text-white' : 'text-[#54656f]'} />
+                      <Lock size={11} className="text-[#8696a0]" />
                       <span>End-to-end encrypted</span>
                     </span>
                   </div>
@@ -1248,9 +1785,9 @@ function App({ merchantId, widgetId }) {
                           }}
                         >
                           <span className="pr-2">{faq.question}</span>
-                          <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full flex-shrink-0" 
-                            style={{ 
-                              backgroundColor: hoveredFaqIndex === index ? primaryColor : (isDark ? '#2a3942' : '#f0f2f5'), 
+                          <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full flex-shrink-0"
+                            style={{
+                              backgroundColor: hoveredFaqIndex === index ? primaryColor : (isDark ? '#2a3942' : '#f0f2f5'),
                               color: hoveredFaqIndex === index ? '#ffffff' : primaryColor,
                               transition: 'all 0.2s ease-in-out'
                             }}>
@@ -1386,11 +1923,11 @@ function App({ merchantId, widgetId }) {
                                   onClick={() => setFullScreenImage(msg.fileUrl)}
                                 />
                               ) : msg.fileType === 'audio' ? (
-                                <AudioPlayer 
-                                  url={msg.fileUrl} 
-                                  primaryColor={primaryColor} 
-                                  isDark={isDark} 
-                                  darkTheme={darkTheme} 
+                                <AudioPlayer
+                                  url={msg.fileUrl}
+                                  primaryColor={primaryColor}
+                                  isDark={isDark}
+                                  darkTheme={darkTheme}
                                 />
                               ) : (
                                 <a href={msg.fileUrl} target="_blank" rel="noopener noreferrer"
@@ -1423,12 +1960,12 @@ function App({ merchantId, widgetId }) {
                               <span style={{ color: msg.status === 'read' ? '#53bdeb' : darkTheme.textSecondary }}>
                                 {(!msg.status || msg.status === 'sent') && (
                                   <svg viewBox="0 0 16 15" width="13" height="13">
-                                    <path d="M10.91 3.316l-.478-.372a.365.365 0 0 0-.51.063L4.566 9.879 2.44 7.753a.365.365 0 0 0-.51 0l-.432.432a.365.365 0 0 0 0 .511l2.56 2.56c.182.182.478.181.66-.001l6.43-8.082a.365.365 0 0 0-.068-.521z" fill="currentColor"/>
+                                    <path d="M10.91 3.316l-.478-.372a.365.365 0 0 0-.51.063L4.566 9.879 2.44 7.753a.365.365 0 0 0-.51 0l-.432.432a.365.365 0 0 0 0 .511l2.56 2.56c.182.182.478.181.66-.001l6.43-8.082a.365.365 0 0 0-.068-.521z" fill="currentColor" />
                                   </svg>
                                 )}
                                 {(msg.status === 'delivered' || msg.status === 'read') && (
                                   <svg viewBox="0 0 16 15" width="15" height="15">
-                                    <path d="M15.01 3.316l-.478-.372a.365.365 0 0 0-.51.063L8.666 9.88a.32.32 0 0 1-.484.032l-.358-.325a.319.319 0 0 0-.484.032l-.378.48a.418.418 0 0 0 .036.54l1.32 1.267a.32.32 0 0 0 .484-.034l6.272-8a.366.366 0 0 0-.064-.512zm-4.1 0l-.478-.372a.365.365 0 0 0-.51.063L4.566 9.879 2.44 7.752a.365.365 0 0 0-.51 0l-.432.432a.365.365 0 0 0 0 .511l2.56 2.56c.182.182.478.181.661-.001L10.95 3.84a.365.365 0 0 0-.039-.524z" fill="currentColor"/>
+                                    <path d="M15.01 3.316l-.478-.372a.365.365 0 0 0-.51.063L8.666 9.88a.32.32 0 0 1-.484.032l-.358-.325a.319.319 0 0 0-.484.032l-.378.48a.418.418 0 0 0 .036.54l1.32 1.267a.32.32 0 0 0 .484-.034l6.272-8a.366.366 0 0 0-.064-.512zm-4.1 0l-.478-.372a.365.365 0 0 0-.51.063L4.566 9.879 2.44 7.752a.365.365 0 0 0-.51 0l-.432.432a.365.365 0 0 0 0 .511l2.56 2.56c.182.182.478.181.661-.001L10.95 3.84a.365.365 0 0 0-.039-.524z" fill="currentColor" />
                                   </svg>
                                 )}
                               </span>
@@ -1500,9 +2037,9 @@ function App({ merchantId, widgetId }) {
               <div className="flex-shrink-0" style={{ backgroundColor: isDark ? '#202c33' : '#f0f2f5' }}>
                 {/* Branding "Powered by o-chat" */}
                 <div className="flex justify-center pt-1.5 -mb-0.5 select-none opacity-60 hover:opacity-100 transition-opacity">
-                  <a 
-                    href="https://o-chat.com" 
-                    target="_blank" 
+                  <a
+                    href="https://o-chat.com"
+                    target="_blank"
                     rel="noopener noreferrer"
                     className="text-[9px] tracking-wide font-medium flex items-center space-x-0.5 hover:underline cursor-pointer"
                     style={{ color: darkTheme.textSecondary }}
@@ -1570,23 +2107,23 @@ function App({ merchantId, widgetId }) {
                           </button>
 
                           {/* Recording Panel Capsule */}
-                          <div 
+                          <div
                             className="flex-1 flex items-center justify-between rounded-2xl px-3.5 py-2 min-h-[40px] shadow-inner"
-                            style={{ 
+                            style={{
                               backgroundColor: isDark ? '#2a3942' : 'white',
                               border: `1px solid ${darkTheme.borderColor}`
                             }}
                           >
                             <div className="flex items-center space-x-1.5 flex-shrink-0">
                               <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse flex-shrink-0" />
-                              <span 
+                              <span
                                 className="text-xs font-semibold tracking-wider tabular-nums"
                                 style={{ color: isDark ? '#e9edef' : '#111b21' }}
                               >
                                 {formatRecordingTime(recordingTime)}
                               </span>
                             </div>
-                            
+
                             {/* Dancing Waveform Visualizer */}
                             <div className="flex-1 flex items-center justify-center space-x-0.5 px-3 h-5">
                               {audioLevels.map((level, idx) => (
@@ -1612,9 +2149,9 @@ function App({ merchantId, widgetId }) {
                       ) : (
                         <>
                           {/* Input Capsule Layout */}
-                          <div 
+                          <div
                             className="flex-1 flex items-end rounded-2xl px-2 py-1 min-h-[40px] shadow-inner"
-                            style={{ 
+                            style={{
                               backgroundColor: isDark ? '#2a3942' : 'white',
                               border: `1px solid ${darkTheme.borderColor}`
                             }}
@@ -1637,7 +2174,7 @@ function App({ merchantId, widgetId }) {
                               onKeyDown={handleKeyDown}
                               placeholder="Type a message..."
                               className="flex-1 bg-transparent text-sm outline-none resize-none mx-2 max-h-[120px] py-1 wa-scroll"
-                              style={{ 
+                              style={{
                                 border: 'none',
                                 color: isDark ? '#e9edef' : '#111b21',
                               }}
@@ -1694,11 +2231,10 @@ function App({ merchantId, widgetId }) {
               style={{ backgroundColor: 'white', border: '1px solid #e9edef' }}
             >
               <p className="text-sm text-gray-800 truncate">{unreadMessage}</p>
-              <div className={`absolute ${
-                isSideTab
+              <div className={`absolute ${isSideTab
                   ? `top-1/2 -translate-y-1/2 ${isRight ? '-right-1.5 border-t border-r' : '-left-1.5 border-b border-l'}`
                   : `-bottom-2 ${isRight ? 'right-5' : 'left-5'} border-b border-r`
-              } w-3 h-3 transform rotate-45 bg-white border-gray-100`} />
+                } w-3 h-3 transform rotate-45 bg-white border-gray-100`} />
             </div>
           )}
 
@@ -1706,11 +2242,10 @@ function App({ merchantId, widgetId }) {
             <button
               onClick={() => setIsOpen(true)}
               style={{ backgroundColor: primaryColor }}
-              className={`flex flex-col items-center justify-center text-white shadow-xl hover:brightness-95 transition-all duration-200 border-t border-b border-white/15 ${
-                isRight
+              className={`flex flex-col items-center justify-center text-white shadow-xl hover:brightness-95 transition-all duration-200 border-t border-b border-white/15 ${isRight
                   ? 'rounded-l-2xl rounded-r-none border-l hover:-translate-x-0.5'
                   : 'rounded-r-2xl rounded-l-none border-r hover:translate-x-0.5'
-              } py-4 px-2 w-9 active:scale-95`}
+                } py-4 px-2 w-9 active:scale-95`}
             >
               <MessageCircle size={18} className="mb-2" />
               <span
@@ -1724,11 +2259,10 @@ function App({ merchantId, widgetId }) {
             <button
               onClick={() => setIsOpen(true)}
               style={{ backgroundColor: primaryColor }}
-              className={`flex items-center justify-center text-white shadow-lg hover:brightness-95 transition-all hover:scale-105 transform duration-200 ${
-                widgetConfig.launcherType === 'text_and_icon'
+              className={`flex items-center justify-center text-white shadow-lg hover:brightness-95 transition-all hover:scale-105 transform duration-200 ${widgetConfig.launcherType === 'text_and_icon'
                   ? 'px-5 py-3 rounded-full space-x-2 h-auto w-auto'
                   : 'w-14 h-14 rounded-full'
-              }`}
+                }`}
             >
               <MessageCircle size={widgetConfig.launcherType === 'text_and_icon' ? 20 : 28} />
               {widgetConfig.launcherType === 'text_and_icon' && (

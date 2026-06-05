@@ -37,7 +37,11 @@
   }
 
   /* WhatsApp-style scrollbar */
+  .wa-scroll {
+    overscroll-behavior: contain;
+  }
   .wa-scroll::-webkit-scrollbar {
+
     width: 5px;
   }
   .wa-scroll::-webkit-scrollbar-track {
@@ -90,3 +94,36 @@
     border-right-color: #26262b;
   }
 }
+
+/* Mobile Full Screen Styles for Chat Widget */
+@media (max-width: 640px) {
+  .ochat-container-open {
+    inset: 0px !important;
+    width: 100vw !important;
+    height: var(--visual-height, 100vh) !important;
+    max-width: 100% !important;
+    max-height: var(--visual-height, 100vh) !important;
+    top: 0px !important;
+    bottom: 0px !important;
+    left: 0px !important;
+    right: 0px !important;
+    margin: 0px !important;
+    transform: none !important;
+    overscroll-behavior: contain !important;
+  }
+
+  .ochat-window {
+    width: 100vw !important;
+    max-width: 100% !important;
+    height: var(--visual-height, 100vh) !important;
+    max-height: var(--visual-height, 100vh) !important;
+    border-radius: 0px !important;
+    border: none !important;
+    margin: 0px !important;
+    margin-bottom: 0px !important;
+    overscroll-behavior: contain !important;
+  }
+}
+
+
+

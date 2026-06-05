@@ -572,10 +572,10 @@ function WidgetSettings() {
                   <div className="flex justify-center mb-0.5">
                     <span className="text-[8px] px-2 py-0.5 rounded-md flex items-center space-x-1"
                       style={{
-                        backgroundColor: themeMode === 'dark' ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.05)',
-                        color: themeMode === 'dark' ? '#ffffff' : '#54656f'
+                        backgroundColor: themeMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)',
+                        color: '#8696a0'
                       }}>
-                      <Lock size={9} className={themeMode === 'dark' ? 'text-white' : 'text-[#54656f]'} />
+                      <Lock size={9} className="text-[#8696a0]" />
                       <span>End-to-end encrypted</span>
                     </span>
                   </div>

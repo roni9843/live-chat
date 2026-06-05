@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MessageSquare, MoreVertical, Search, Paperclip, Send, Smile, X, Edit2, Trash2, CornerUpLeft, ChevronLeft, Mic, Play, Pause } from 'lucide-react';
+import { MessageSquare, MoreVertical, Search, Paperclip, Send, Smile, X, Edit2, Trash2, CornerUpLeft, ChevronLeft, Mic, MicOff, Play, Pause, Phone, PhoneOff } from 'lucide-react';
 import io from 'socket.io-client';
 import EmojiPicker from 'emoji-picker-react';
 import useAuthStore from '../store/authStore';
@@ -155,6 +155,8 @@ function Chat({ isChatVisible }) {
   const { user } = useAuthStore();
   const { totalUnread, setTotalUnread, activeSessionId, setActiveSessionId } = useChatStore();
   const [socket, setSocket] = useState(null);
+  const socketRef = useRef(null);
+
   const [sessions, setSessions] = useState([]);
   const [messages, setMessages] = useState({});
   const [typingStatus, setTypingStatus] = useState({});
@@ -188,10 +190,40 @@ function Chat({ isChatVisible }) {
   const analyserRef = useRef(null);
   const animationFrameRef = useRef(null);
 
+  // WebRTC Audio Calling States & Refs
+  const [callState, setCallState] = useState('idle'); // 'idle', 'dialing', 'incoming', 'active'
+  const [isCallMuted, setIsCallMuted] = useState(false);
+  const [callDuration, setCallDuration] = useState(0);
+  const [activeVisitorName, setActiveVisitorName] = useState('');
+
+  const callStateRef = useRef('idle');
+  const updateCallState = (state) => {
+    setCallState(state);
+    callStateRef.current = state;
+  };
+
+  const sessionIdRef = useRef(null);
+  useEffect(() => {
+    sessionIdRef.current = activeSessionId;
+  }, [activeSessionId]);
+
+  const localStreamRef = useRef(null);
+  const peerConnectionRef = useRef(null);
+  const ringtoneContextRef = useRef(null);
+  const ringtoneTimerRef = useRef(null);
+  const callTimerRef = useRef(null);
+  const remoteAudioRef = useRef(null);
+  const pendingOfferRef = useRef(null);
+  const pendingAnswerRef = useRef(null);
+  const pendingCandidatesRef = useRef([]);
+  const remoteDescriptionSetRef = useRef(false);
+
+
   useEffect(() => {
     return () => {
       if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
       cleanupVisuals();
+      cleanupCall();
     };
   }, []);
 
@@ -215,6 +247,262 @@ function Chat({ isChatVisible }) {
     const secs = time % 60;
     return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
   };
+
+  const playRingtone = (type) => {
+    try {
+      stopRingtone();
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      const ctx = new AudioContextClass();
+      ringtoneContextRef.current = ctx;
+
+      if (type === 'dialing') {
+        const playTone = () => {
+          if (!ringtoneContextRef.current || ringtoneContextRef.current.state === 'closed') return;
+          const osc1 = ctx.createOscillator();
+          const osc2 = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc1.frequency.setValueAtTime(440, ctx.currentTime);
+          osc2.frequency.setValueAtTime(480, ctx.currentTime);
+          gain.gain.setValueAtTime(0.12, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 2.0);
+          osc1.connect(gain);
+          osc2.connect(gain);
+          gain.connect(ctx.destination);
+          osc1.start();
+          osc2.start();
+          osc1.stop(ctx.currentTime + 2.0);
+          osc2.stop(ctx.currentTime + 2.0);
+        };
+        playTone();
+        ringtoneTimerRef.current = setInterval(playTone, 5000);
+      } else if (type === 'ringing') {
+        const playTone = () => {
+          if (!ringtoneContextRef.current || ringtoneContextRef.current.state === 'closed') return;
+          const now = ctx.currentTime;
+          const ring = (delay) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(600, now + delay);
+            let modTime = now + delay;
+            for (let i = 0; i < 8; i++) {
+              osc.frequency.setValueAtTime(i % 2 === 0 ? 600 : 680, modTime);
+              modTime += 0.1;
+            }
+            gain.gain.setValueAtTime(0.0, now + delay);
+            gain.gain.linearRampToValueAtTime(0.15, now + delay + 0.05);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.8);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now + delay);
+            osc.stop(now + delay + 0.8);
+          };
+          ring(0.0);
+          ring(1.0);
+        };
+        playTone();
+        ringtoneTimerRef.current = setInterval(playTone, 4000);
+      }
+    } catch (err) {
+      console.error('Failed to play ringtone:', err);
+    }
+  };
+
+  const stopRingtone = () => {
+    if (ringtoneTimerRef.current) {
+      clearInterval(ringtoneTimerRef.current);
+      ringtoneTimerRef.current = null;
+    }
+    if (ringtoneContextRef.current) {
+      try {
+        if (ringtoneContextRef.current.state !== 'closed') {
+          ringtoneContextRef.current.close();
+        }
+      } catch (e) {
+        console.error(e);
+      }
+      ringtoneContextRef.current = null;
+    }
+  };
+
+  const cleanupCall = () => {
+    stopRingtone();
+    updateCallState('idle');
+    setCallDuration(0);
+    setIsCallMuted(false);
+
+    if (callTimerRef.current) {
+      clearInterval(callTimerRef.current);
+      callTimerRef.current = null;
+    }
+
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => track.stop());
+      localStreamRef.current = null;
+    }
+
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.close();
+      peerConnectionRef.current = null;
+    }
+
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.srcObject = null;
+    }
+
+    pendingOfferRef.current = null;
+    pendingAnswerRef.current = null;
+    pendingCandidatesRef.current = [];
+    remoteDescriptionSetRef.current = false;
+  };
+
+
+  const startCall = () => {
+    if (!socketRef.current || !sessionIdRef.current) return;
+    updateCallState('dialing');
+    setActiveVisitorName(activeSession?.visitorName || 'Guest');
+    playRingtone('dialing');
+
+    socketRef.current.emit('call_request', {
+      sessionId: sessionIdRef.current,
+      callerName: myWidgetProfile?.name || user?.name || 'Support Agent',
+      callerType: 'merchant'
+    });
+
+    if (callTimerRef.current) clearInterval(callTimerRef.current);
+    let secondsElapsed = 0;
+    callTimerRef.current = setInterval(() => {
+      secondsElapsed++;
+      if (secondsElapsed >= 35) {
+        hangupCall();
+      }
+    }, 1000);
+  };
+
+  const acceptCall = () => {
+    if (!socketRef.current || !sessionIdRef.current) return;
+    stopRingtone();
+    updateCallState('active');
+    setCallDuration(0);
+
+    if (callTimerRef.current) clearInterval(callTimerRef.current);
+    callTimerRef.current = setInterval(() => {
+      setCallDuration(prev => prev + 1);
+    }, 1000);
+
+    socketRef.current.emit('call_accept', { sessionId: sessionIdRef.current });
+    setupWebRTC(false);
+  };
+
+  const rejectCall = () => {
+    if (!socketRef.current || !sessionIdRef.current) return;
+    stopRingtone();
+    socketRef.current.emit('call_reject', { sessionId: sessionIdRef.current, reason: 'declined' });
+    cleanupCall();
+  };
+
+  const hangupCall = () => {
+    if (socketRef.current && sessionIdRef.current) {
+      socketRef.current.emit('call_hangup', { sessionId: sessionIdRef.current });
+    }
+    cleanupCall();
+  };
+
+
+  const toggleCallMute = () => {
+    if (localStreamRef.current) {
+      const audioTrack = localStreamRef.current.getAudioTracks()[0];
+      if (audioTrack) {
+        audioTrack.enabled = !audioTrack.enabled;
+        setIsCallMuted(!audioTrack.enabled);
+      }
+    }
+  };
+
+  const setupWebRTC = async (isCaller) => {
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('secure_context_required');
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+      });
+      localStreamRef.current = stream;
+
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      });
+      peerConnectionRef.current = pc;
+
+      stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+      pc.onicecandidate = (e) => {
+        if (e.candidate && socketRef.current && sessionIdRef.current) {
+          socketRef.current.emit('webrtc_ice', { sessionId: sessionIdRef.current, candidate: e.candidate });
+        }
+      };
+
+      pc.ontrack = (e) => {
+        const remoteStream = e.streams[0];
+        if (remoteAudioRef.current) {
+          remoteAudioRef.current.srcObject = remoteStream;
+          remoteAudioRef.current.play().catch(err => console.error('Error playing remote audio:', err));
+        }
+      };
+
+      // Apply pending offer if received before setupWebRTC completed
+      if (!isCaller && pendingOfferRef.current) {
+        await pc.setRemoteDescription(new RTCSessionDescription(pendingOfferRef.current));
+        remoteDescriptionSetRef.current = true;
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socketRef.current.emit('webrtc_answer', { sessionId: sessionIdRef.current, answer });
+        pendingOfferRef.current = null;
+
+        // Apply any buffered ICE candidates
+        for (const candidate of pendingCandidatesRef.current) {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.error("Error adding buffered candidate:", e));
+        }
+        pendingCandidatesRef.current = [];
+      }
+
+      // Apply pending answer if received before setupWebRTC completed
+      if (isCaller && pendingAnswerRef.current) {
+        await pc.setRemoteDescription(new RTCSessionDescription(pendingAnswerRef.current));
+        remoteDescriptionSetRef.current = true;
+        pendingAnswerRef.current = null;
+
+        // Apply any buffered ICE candidates
+        for (const candidate of pendingCandidatesRef.current) {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.error("Error adding buffered candidate:", e));
+        }
+        pendingCandidatesRef.current = [];
+      }
+
+      if (isCaller && !remoteDescriptionSetRef.current) {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socketRef.current.emit('webrtc_offer', { sessionId: sessionIdRef.current, offer });
+      }
+
+
+    } catch (err) {
+      console.error('Error setting up WebRTC call:', err);
+      if (err.message === 'secure_context_required' || window.location.protocol === 'file:') {
+        alert('Microphone access blocked: WebRTC requires a Secure Context (localhost or HTTPS). Please run your page on a local web server (e.g. npx serve) instead of opening the HTML directly from file://.');
+      } else if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        alert('Microphone permission blocked. Please check your browser address bar: click the settings/lock icon next to the URL, change Microphone permission to "Allow", and reload the page. Also, verify that microphone access is enabled in your computer\'s system settings (Settings > Privacy > Microphone).');
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        alert('No microphone detected. Please check if your microphone is properly plugged in and recognized by your computer.');
+      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+        alert('Your microphone is currently being used by another application (like Discord, Zoom, or another browser tab). Please close those apps and try again.');
+      } else {
+        alert('Could not access microphone: ' + (err.message || err.name || 'Unknown error.'));
+      }
+      cleanupCall();
+    }
+  };
+
 
   const startRecording = async () => {
     try {
@@ -402,7 +690,9 @@ function Chat({ isChatVisible }) {
     });
 
     setSocket(newSocket);
+    socketRef.current = newSocket;
     newSocket.emit('merchant_join', user._id);
+
 
     newSocket.on('all_sessions', (allSessions) => {
       setSessions(allSessions);
@@ -479,8 +769,147 @@ function Chat({ isChatVisible }) {
       }
     });
 
+    // WebRTC Call Listeners
+    newSocket.on('incoming_call', ({ sessionId: cId, callerName, callerType, visitorName }) => {
+      if (callStateRef.current !== 'idle') {
+        newSocket.emit('call_reject', { sessionId: cId, reason: 'busy' });
+        return;
+      }
+      if (cId === activeSessionIdRef.current && isChatVisibleRef.current) {
+        updateCallState('incoming');
+        setActiveVisitorName(visitorName || callerName || 'Guest');
+        playRingtone('ringing');
+      } else {
+        window.dispatchEvent(new CustomEvent('global_incoming_call', {
+          detail: {
+            sessionId: cId,
+            callerName,
+            callerType,
+            visitorName: visitorName || callerName || 'Guest'
+          }
+        }));
+      }
+    });
+
+    newSocket.on('call_accepted', () => {
+      stopRingtone();
+      updateCallState('active');
+      setCallDuration(0);
+      if (callTimerRef.current) clearInterval(callTimerRef.current);
+      callTimerRef.current = setInterval(() => {
+        setCallDuration(prev => prev + 1);
+      }, 1000);
+      setupWebRTC(true);
+    });
+
+    newSocket.on('call_rejected', ({ sessionId: cId, reason }) => {
+      window.dispatchEvent(new CustomEvent('global_call_dismiss', { detail: { sessionId: cId } }));
+      if (cId !== activeSessionIdRef.current) return;
+      cleanupCall();
+      if (reason === 'busy') {
+        alert('Line busy. The visitor is currently in another call.');
+      } else {
+        alert('Call declined by visitor.');
+      }
+    });
+
+    newSocket.on('webrtc_offer_received', async ({ sessionId: cId, offer }) => {
+      if (cId !== activeSessionIdRef.current) return;
+      try {
+        if (peerConnectionRef.current) {
+          await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(offer));
+          remoteDescriptionSetRef.current = true;
+          const answer = await peerConnectionRef.current.createAnswer();
+          await peerConnectionRef.current.setLocalDescription(answer);
+          newSocket.emit('webrtc_answer', { sessionId: sessionIdRef.current, answer });
+
+          // Apply any buffered ICE candidates
+          for (const candidate of pendingCandidatesRef.current) {
+            await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.error("Error adding buffered candidate:", e));
+          }
+          pendingCandidatesRef.current = [];
+        } else {
+          pendingOfferRef.current = offer;
+        }
+      } catch (err) {
+        console.error('Error handling WebRTC offer:', err);
+      }
+    });
+
+    newSocket.on('webrtc_answer_received', async ({ sessionId: cId, answer }) => {
+      if (cId !== activeSessionIdRef.current) return;
+      try {
+        if (peerConnectionRef.current) {
+          await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(answer));
+          remoteDescriptionSetRef.current = true;
+
+          // Apply any buffered ICE candidates
+          for (const candidate of pendingCandidatesRef.current) {
+            await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.error("Error adding buffered candidate:", e));
+          }
+          pendingCandidatesRef.current = [];
+        } else {
+          pendingAnswerRef.current = answer;
+        }
+      } catch (err) {
+        console.error('Error handling WebRTC answer:', err);
+      }
+    });
+
+    newSocket.on('webrtc_ice_received', async ({ sessionId: cId, candidate }) => {
+      if (cId !== activeSessionIdRef.current) return;
+      try {
+        if (peerConnectionRef.current && remoteDescriptionSetRef.current) {
+          await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+        } else {
+          pendingCandidatesRef.current.push(candidate);
+        }
+      } catch (err) {
+        console.error('Error adding remote ICE candidate:', err);
+      }
+    });
+
+    newSocket.on('call_hungup', ({ sessionId: cId }) => {
+      window.dispatchEvent(new CustomEvent('global_call_dismiss', { detail: { sessionId: cId } }));
+      if (cId !== activeSessionIdRef.current) return;
+      cleanupCall();
+    });
+
+
     return () => newSocket.close();
   }, [user]);
+
+  useEffect(() => {
+    const handleGlobalAccept = (e) => {
+      const { sessionId: cId } = e.detail || {};
+      setTimeout(() => {
+        if (cId === activeSessionIdRef.current) {
+          acceptCall();
+        } else {
+          console.log("Global accept session ID mismatch, forcing accept for:", cId);
+          sessionIdRef.current = cId;
+          acceptCall();
+        }
+      }, 100);
+    };
+
+    const handleGlobalDecline = (e) => {
+      const { sessionId: cId } = e.detail || {};
+      if (socket) {
+        socket.emit('call_reject', { sessionId: cId, reason: 'declined' });
+      }
+      cleanupCall();
+    };
+
+    window.addEventListener('global_call_accepted', handleGlobalAccept);
+    window.addEventListener('global_decline_call', handleGlobalDecline);
+
+    return () => {
+      window.removeEventListener('global_call_accepted', handleGlobalAccept);
+      window.removeEventListener('global_decline_call', handleGlobalDecline);
+    };
+  }, [socket, activeSessionId]);
+
 
   const activeSession = sessions.find(s => s._id === activeSessionId);
   const activeWidget = activeSession
@@ -577,6 +1006,106 @@ function Chat({ isChatVisible }) {
       }
     };
   }, [activeSessionId, socket, activeSession, user._id, messages, myWidgetProfile.name, myWidgetProfile.profilePic]);
+
+  const formatCallTime = (secs) => {
+    const mins = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${mins}:${s < 10 ? '0' : ''}${s}`;
+  };
+
+  const renderCallOverlay = () => {
+    return (
+      <div 
+        className="flex-1 flex flex-col items-center justify-between p-8 text-white select-none animate-fade-in"
+        style={{ backgroundColor: '#111b21' }}
+      >
+        <audio ref={remoteAudioRef} className="hidden" autoPlay />
+        
+        {/* Top area: Info & Avatar */}
+        <div className="flex flex-col items-center mt-12 space-y-4 w-full">
+          <div className="relative">
+            {(callState === 'dialing' || callState === 'incoming') && (
+              <div className="absolute inset-0 rounded-full bg-emerald-500/20 animate-ping" style={{ animationDuration: '2s' }} />
+            )}
+            {callState === 'active' && (
+              <div className="absolute inset-0 rounded-full bg-emerald-500/10 animate-pulse" />
+            )}
+            
+            <div 
+              className="w-24 h-24 rounded-full flex items-center justify-center text-white font-bold text-3xl shadow-xl relative z-10 bg-[#00a884]"
+            >
+              {activeVisitorName.charAt(0).toUpperCase()}
+            </div>
+          </div>
+          
+          <h2 className="text-lg font-bold tracking-wide mt-2">{activeVisitorName}</h2>
+          
+          {callState === 'dialing' && (
+            <p className="text-xs text-emerald-400 font-semibold animate-pulse tracking-widest uppercase">Calling...</p>
+          )}
+          {callState === 'incoming' && (
+            <p className="text-xs text-emerald-400 font-semibold animate-pulse tracking-widest uppercase">Incoming call...</p>
+          )}
+          {callState === 'active' && (
+            <div className="flex flex-col items-center space-y-1">
+              <span className="px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-xs font-bold font-mono tracking-widest">
+                {formatCallTime(callDuration)}
+              </span>
+              <p className="text-[10px] text-gray-400 uppercase tracking-widest">Call in progress</p>
+            </div>
+          )}
+        </div>
+
+        {/* Bottom area: Controls */}
+        <div className="flex items-center justify-center w-full mb-12 space-x-6">
+          {callState === 'incoming' ? (
+            <>
+              {/* Decline Button */}
+              <button
+                onClick={rejectCall}
+                className="w-14 h-14 rounded-full bg-red-600 hover:bg-red-700 flex items-center justify-center text-white shadow-lg transform transition active:scale-95 cursor-pointer animate-in fade-in"
+                title="Decline Call"
+              >
+                <PhoneOff size={24} />
+              </button>
+              
+              {/* Accept Button */}
+              <button
+                onClick={acceptCall}
+                className="w-14 h-14 rounded-full bg-emerald-500 hover:bg-emerald-600 flex items-center justify-center text-white shadow-lg transform transition active:scale-95 cursor-pointer animate-in fade-in"
+                title="Accept Call"
+              >
+                <Phone size={24} className="fill-white animate-bounce" />
+              </button>
+            </>
+          ) : (
+            <>
+              {/* Mute Button */}
+              {callState === 'active' && (
+                <button
+                  onClick={toggleCallMute}
+                  style={{ backgroundColor: isCallMuted ? '#ef4444' : 'rgba(255,255,255,0.1)' }}
+                  className="w-12 h-12 rounded-full flex items-center justify-center text-white shadow-md hover:bg-white/20 transition active:scale-95 cursor-pointer"
+                  title={isCallMuted ? 'Unmute' : 'Mute'}
+                >
+                  {isCallMuted ? <MicOff size={20} /> : <Mic size={20} />}
+                </button>
+              )}
+              
+              {/* End Call Button */}
+              <button
+                onClick={hangupCall}
+                className="w-14 h-14 rounded-full bg-red-600 hover:bg-red-700 flex items-center justify-center text-white shadow-lg transform transition active:scale-95 cursor-pointer"
+                title="End Call"
+              >
+                <PhoneOff size={24} />
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   const currentMessagesRaw = activeSessionId ? (messages[activeSessionId] || []) : [];
   const currentMessages = isSearching && searchQuery
@@ -929,6 +1458,14 @@ function Chat({ isChatVisible }) {
                 )}
 
                 <div className="flex items-center space-x-1" style={{ color: '#8696a0' }}>
+                  {activeSession && activeSession.status !== 'closed' && (
+                    <button onClick={startCall}
+                      className="p-2 rounded-full hover:bg-white/10 transition-colors"
+                      title="Voice Call"
+                    >
+                      <Phone size={20} className="fill-[#8696a0]" />
+                    </button>
+                  )}
                   {!isSearching && (
                     <button onClick={() => setIsSearching(true)}
                       className="p-2 rounded-full hover:bg-white/10 transition-colors">
@@ -958,8 +1495,12 @@ function Chat({ isChatVisible }) {
                 </div>
               </div>
 
-              {/* Messages Area */}
-              <div
+              {callState !== 'idle' ? (
+                renderCallOverlay()
+              ) : (
+                <>
+                  {/* Messages Area */}
+                  <div
                 style={{
                   backgroundColor: activeWidget?.bgType === 'solid' ? activeWidget.bgColor : '#efeae2',
                   backgroundImage: activeWidget?.bgType === 'solid' ? 'none' : `url(${activeWidget?.bgImage || 'https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png'})`,
@@ -975,7 +1516,7 @@ function Chat({ isChatVisible }) {
                 {currentMessages.length === 0 && (
                   <div className="flex justify-center mt-6">
                     <span className="text-xs px-3 py-1.5 rounded-md shadow-sm"
-                      style={{ backgroundColor: 'rgba(255,255,255,0.85)', color: '#54656f' }}>
+                      style={{ backgroundColor: 'rgba(255,255,255,0.85)', color: '#8696a0' }}>
                       🔒 Messages are end-to-end encrypted
                     </span>
                   </div>
@@ -1404,6 +1945,8 @@ function Chat({ isChatVisible }) {
                     )}
                   </div>
                 </div>
+              )}
+                </>
               )}
             </div>
 
