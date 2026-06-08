@@ -239,7 +239,7 @@ exports.updateWidget = async (req, res) => {
     domain, companyName, color, position, title, allowedDomains, isActive, 
     authorizedUsers, pendingUsers, welcomeMessage, spacingBottom, spacingSide,
     launcherType, launcherText, themeMode, bgType, bgColor, bgImage,
-    ownerNickname, ownerDesignation, ownerProfilePic, faqs, preChatForm
+    ownerNickname, ownerDesignation, ownerProfilePic, faqs, preChatForm, logo
   } = req.body;
   try {
     const merchant = await Merchant.findOne({ "widgets._id": req.params.widgetId });
@@ -276,6 +276,7 @@ exports.updateWidget = async (req, res) => {
         if (pendingUsers) widget.pendingUsers = pendingUsers;
         if (faqs !== undefined) widget.faqs = faqs;
         if (preChatForm !== undefined) widget.preChatForm = preChatForm;
+        if (logo !== undefined) widget.logo = logo;
         
         await merchant.save();
         await merchant.populate('widgets.authorizedUsers.user', 'name email');
@@ -377,6 +378,7 @@ exports.getWidgetPublic = async (req, res) => {
         bgType: widget.bgType || 'image',
         bgColor: widget.bgColor || '#efeae2',
         bgImage: widget.bgImage || 'https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png',
+        logo: widget.logo || '',
         agents,
         faqs: widget.faqs || [],
         preChatForm: widget.preChatForm

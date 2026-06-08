@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MessageCircle, X, Send, Paperclip, Smile, CornerUpLeft, ChevronLeft, MoreVertical, Globe, ShieldCheck, Lock, Mic, MicOff, Play, Pause, Trash2, Phone, PhoneOff } from 'lucide-react';
+import { MessageCircle, X, Send, Paperclip, Smile, CornerUpLeft, ChevronLeft, MoreVertical, Globe, ShieldCheck, Lock, Mic, MicOff, Play, Pause, Trash2, Phone, PhoneOff, UserCheck } from 'lucide-react';
 import io from 'socket.io-client';
 import EmojiPicker from 'emoji-picker-react';
 
@@ -1457,6 +1457,7 @@ function App({ merchantId, widgetId }) {
   let headerTitle = widgetConfig.title || widgetConfig.companyName;
   let headerAgents = [];
   let headerSubtitle = 'Typically replies in minutes';
+  let showLogoInHeader = false;
 
   if (activeViewers.length === 1) {
     headerTitle = activeViewers[0].name;
@@ -1467,13 +1468,20 @@ function App({ merchantId, widgetId }) {
     headerAgents = activeViewers;
     headerSubtitle = `${activeViewers.length} agents online`;
   } else {
-    if (activeAgents.length === 1) {
-      headerTitle = activeAgents[0].name;
-      headerAgents = [activeAgents[0]];
-      headerSubtitle = 'Support Representative';
-    } else if (activeAgents.length > 1) {
-      headerTitle = widgetConfig.companyName;
-      headerAgents = activeAgents;
+    // No active viewers (admins are not looking at this chat currently)
+    if (widgetConfig.logo) {
+      showLogoInHeader = true;
+      headerTitle = widgetConfig.title || widgetConfig.companyName;
+      headerSubtitle = 'Typically replies in minutes';
+    } else {
+      if (activeAgents.length === 1) {
+        headerTitle = activeAgents[0].name;
+        headerAgents = [activeAgents[0]];
+        headerSubtitle = 'Support Representative';
+      } else if (activeAgents.length > 1) {
+        headerTitle = widgetConfig.companyName;
+        headerAgents = activeAgents;
+      }
     }
   }
 
@@ -1523,8 +1531,12 @@ function App({ merchantId, widgetId }) {
             style={{ backgroundColor: darkTheme.headerBg, minHeight: '56px' }}
           >
             <div className="flex items-center flex-1 min-w-0">
-              {/* Agent avatars */}
-              {headerAgents && headerAgents.length > 0 ? (
+              {/* Agent avatars or Logo */}
+              {showLogoInHeader && widgetConfig.logo ? (
+                <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden mr-2.5 border border-white/20 bg-white flex items-center justify-center">
+                  <img src={widgetConfig.logo} alt="Logo" className="w-full h-full object-cover" />
+                </div>
+              ) : headerAgents && headerAgents.length > 0 ? (
                 <div className="flex -space-x-2 mr-2.5 overflow-hidden">
                   {headerAgents.slice(0, 3).map((agent, i) => (
                     <AgentAvatar
@@ -1668,12 +1680,18 @@ function App({ merchantId, widgetId }) {
               <div className="flex-1 flex flex-col items-center justify-start pt-6 px-6 text-center overflow-y-auto wa-scroll space-y-6 pb-6">
                 {/* Company Logo/Initial */}
                 <div className="flex flex-col items-center">
-                  <div
-                    className="w-16 h-16 rounded-2xl flex items-center justify-center text-3xl font-bold text-white shadow-md mb-3"
-                    style={{ backgroundColor: primaryColor }}
-                  >
-                    {widgetConfig.companyName.charAt(0).toUpperCase()}
-                  </div>
+                  {widgetConfig.logo ? (
+                    <div className="w-16 h-16 rounded-2xl overflow-hidden shadow-md mb-3 border border-gray-200 bg-white flex items-center justify-center flex-shrink-0">
+                      <img src={widgetConfig.logo} alt="Company Logo" className="w-full h-full object-cover" />
+                    </div>
+                  ) : (
+                    <div
+                      className="w-16 h-16 rounded-2xl flex items-center justify-center text-3xl font-bold text-white shadow-md mb-3"
+                      style={{ backgroundColor: primaryColor }}
+                    >
+                      {widgetConfig.companyName.charAt(0).toUpperCase()}
+                    </div>
+                  )}
                   <h4 className="text-base font-bold" style={{ color: darkTheme.textPrimary }}>
                     {widgetConfig.companyName}
                   </h4>
@@ -1801,11 +1819,24 @@ function App({ merchantId, widgetId }) {
 
                 {messages.map((msg, index) => {
                   if (msg.sender === 'system') {
+                    const isClosedMsg = msg.content.includes('ended') || msg.content.includes('closed');
                     return (
                       <div key={index} className="flex justify-center my-3 animate-in fade-in duration-200">
-                        <span className="text-[10px] px-2.5 py-1.5 rounded-md border border-red-500/20 text-red-500 bg-red-500/10 font-semibold shadow-xs">
-                          🚫 {msg.content}
-                        </span>
+                        {isClosedMsg ? (
+                          <span className="text-[10px] px-2.5 py-1.5 rounded-md border border-red-500/20 text-red-500 bg-red-500/10 font-semibold shadow-xs">
+                            🚫 {msg.content}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] px-2.5 py-1.5 rounded-md border font-semibold shadow-xs flex items-center space-x-1"
+                            style={{
+                              backgroundColor: 'rgba(0, 168, 132, 0.08)',
+                              borderColor: 'rgba(0, 168, 132, 0.15)',
+                              color: '#00a884'
+                            }}>
+                            <UserCheck size={11} className="text-[#00a884]" />
+                            <span>{msg.content}</span>
+                          </span>
+                        )}
                       </div>
                     );
                   }

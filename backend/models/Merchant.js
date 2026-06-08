@@ -72,6 +72,7 @@ const merchantSchema = new mongoose.Schema({
         }
       }
     },
+    logo: { type: String, default: '' },
     createdAt: { type: Date, default: Date.now }
   }],
   createdAt: { type: Date, default: Date.now }

@@ -39,6 +39,9 @@ function WidgetSettings() {
   const [bgImage, setBgImage] = useState('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png');
   const [isUploadingBg, setIsUploadingBg] = useState(false);
   const bgFileInputRef = useRef(null);
+  const [logo, setLogo] = useState('');
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const logoFileInputRef = useRef(null);
   const [faqs, setFaqs] = useState([{ question: '', answer: '' }]);
   const [preChatForm, setPreChatForm] = useState({
     enabled: false,
@@ -93,6 +96,7 @@ function WidgetSettings() {
       setOwnerNickname(widget.ownerNickname || '');
       setOwnerDesignation(widget.ownerDesignation || '');
       setOwnerProfilePic(widget.ownerProfilePic || '');
+      setLogo(widget.logo || '');
       setAuthorizedUsers(widget.authorizedUsers || []);
       setPendingUsers(widget.pendingUsers || []);
       setFaqs(widget.faqs && widget.faqs.length > 0 ? widget.faqs : [{ question: '', answer: '' }]);
@@ -185,7 +189,8 @@ function WidgetSettings() {
         bgColor,
         bgImage,
         faqs: filteredFaqs,
-        preChatForm
+        preChatForm,
+        logo
       };
 
       const { data } = await axios.put(`${API_URL}/widgets/${widgetId}`, payload, config);
@@ -275,6 +280,35 @@ function WidgetSettings() {
       alert('Failed to upload background image');
     } finally {
       setIsUploadingBg(false);
+    }
+  };
+
+  const handleLogoUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setIsUploadingLogo(true);
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const uploadUrl = `${import.meta.env.VITE_API_URL || 'https://jh5nng6t-5000.asse.devtunnels.ms'}/api/upload`;
+      const res = await fetch(uploadUrl, {
+        method: 'POST',
+        body: formData
+      });
+      const data = await res.json();
+
+      if (data.success && data.fileUrl) {
+        setLogo(data.fileUrl);
+      } else {
+        alert('Upload failed');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Failed to upload logo');
+    } finally {
+      setIsUploadingLogo(false);
     }
   };
 
@@ -489,7 +523,13 @@ function WidgetSettings() {
               className="p-3 text-white flex items-center justify-between"
             >
               <div className="flex items-center space-x-2">
-                {previewAgents.length > 0 ? (
+                {logo ? (
+                  <img
+                    className="inline-block h-5 w-5 rounded-full aspect-square object-cover flex-shrink-0 ring-1 ring-white bg-white mr-1"
+                    src={logo}
+                    alt="Logo"
+                  />
+                ) : previewAgents.length > 0 ? (
                   <div className="flex -space-x-1.5 items-center mr-1">
                     {previewAgents.slice(0, 3).map((agent, i) => (
                       agent.profilePic ? (
@@ -514,7 +554,7 @@ function WidgetSettings() {
                   </div>
                 ) : (
                   <div className="w-5 h-5 rounded-full bg-white flex items-center justify-center font-bold text-[8px] text-gray-700 mr-1">
-                    O
+                    {companyName ? companyName.charAt(0).toUpperCase() : 'O'}
                   </div>
                 )}
                 <div className="truncate text-left">
@@ -951,6 +991,52 @@ function WidgetSettings() {
             </div>
           </div>
         )}
+      </div>
+
+      <div className="border-t border-gray-150 pt-4">
+        <h3 className="text-xs font-semibold text-gray-600 uppercase mb-2.5">Widget Logo</h3>
+        <div className="flex items-center space-x-4">
+          <div className="w-16 h-16 rounded-full border border-gray-200 bg-gray-50 flex items-center justify-center overflow-hidden flex-shrink-0">
+            {logo ? (
+              <img src={logo} alt="Widget Logo" className="w-full h-full object-cover" />
+            ) : (
+              <Globe size={24} className="text-gray-400" />
+            )}
+          </div>
+          <div className="space-y-1.5 text-left">
+            <div className="flex items-center space-x-2">
+              <button
+                type="button"
+                disabled={!isWidgetAdmin || isUploadingLogo}
+                onClick={() => logoFileInputRef.current?.click()}
+                className="flex items-center space-x-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-250 border border-gray-300 text-gray-700 text-xs rounded-lg font-semibold transition active:scale-95 disabled:opacity-50 cursor-pointer"
+              >
+                {isUploadingLogo ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+                <span>Upload Logo</span>
+              </button>
+              <input
+                type="file"
+                ref={logoFileInputRef}
+                onChange={handleLogoUpload}
+                accept="image/*"
+                className="hidden"
+              />
+              {logo && (
+                <button
+                  type="button"
+                  disabled={!isWidgetAdmin}
+                  onClick={() => setLogo('')}
+                  className="text-xs text-red-500 hover:text-red-700 font-semibold px-2 py-1 hover:bg-red-50 rounded-md transition cursor-pointer"
+                >
+                  Remove
+                </button>
+              )}
+            </div>
+            <p className="text-[10px] text-gray-400">
+              This logo will be shown in the chat widget header when automated messages are sent, or when no agents are currently viewing/inside the chat inbox.
+            </p>
+          </div>
+        </div>
       </div>
 
       {isWidgetAdmin && (

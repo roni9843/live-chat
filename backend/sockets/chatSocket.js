@@ -219,6 +219,13 @@ module.exports = (io) => {
           return;
         }
 
+        if (sender === 'merchant') {
+          if (sessionObj.assignedAgent && sessionObj.assignedAgent.toString() !== senderId.toString()) {
+            console.log(`Blocked message: Agent ${senderId} is not assigned to session ${sessionId}`);
+            return;
+          }
+        }
+
         const message = await Message.create({
           sessionId,
           sender,
@@ -260,6 +267,69 @@ module.exports = (io) => {
 
       } catch (err) {
         console.error('Error saving message', err);
+      }
+    });
+
+    // Join / Enroll in chat session
+    socket.on('join_session', async ({ sessionId, agentId, agentName, merchantId }) => {
+      try {
+        const session = await ChatSession.findById(sessionId);
+        if (!session) return;
+
+        // Assign the agent
+        session.assignedAgent = agentId;
+        session.assignedAgentName = agentName;
+        await session.save();
+
+        // Create a system message: "Agent [Name] joined the conversation"
+        const systemMsg = await Message.create({
+          sessionId: session._id,
+          sender: 'system',
+          content: `${agentName} joined the conversation`,
+          status: 'read'
+        });
+
+        const roomName = `session_${sessionId}`;
+        
+        // Broadcast to visitor and other participants in the room
+        io.to(roomName).emit('receive_message', systemMsg);
+        
+        // Notify all merchants/agents that the session was updated and a message was received
+        if (merchantId) {
+          await notifyMerchants(merchantId, sessionId, 'receive_message', systemMsg);
+          await notifyMerchants(merchantId, sessionId, 'session_updated', session);
+        }
+      } catch (err) {
+        console.error('Error joining session:', err);
+      }
+    });
+
+    // Leave / Unassign chat session
+    socket.on('leave_session', async ({ sessionId, agentName, merchantId }) => {
+      try {
+        const session = await ChatSession.findById(sessionId);
+        if (!session) return;
+
+        session.assignedAgent = null;
+        session.assignedAgentName = null;
+        await session.save();
+
+        const systemMsg = await Message.create({
+          sessionId: session._id,
+          sender: 'system',
+          content: `${agentName} left the conversation`,
+          status: 'read'
+        });
+
+        const roomName = `session_${sessionId}`;
+        io.to(roomName).emit('receive_message', systemMsg);
+
+        if (merchantId) {
+          await notifyMerchants(merchantId, sessionId, 'receive_message', systemMsg);
+          await notifyMerchants(merchantId, sessionId, 'session_updated', session);
+        }
+      } catch (err) {
+        console.error('Error leaving session:', err);
       }
     });
 

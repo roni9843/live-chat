@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MessageSquare, MoreVertical, Search, Paperclip, Send, Smile, X, Edit2, Trash2, CornerUpLeft, ChevronLeft, Mic, MicOff, Play, Pause, Phone, PhoneOff } from 'lucide-react';
+import { MessageSquare, MoreVertical, Search, Paperclip, Send, Smile, X, Edit2, Trash2, CornerUpLeft, ChevronLeft, Mic, MicOff, Play, Pause, Phone, PhoneOff, UserCheck } from 'lucide-react';
 import io from 'socket.io-client';
 import EmojiPicker from 'emoji-picker-react';
 import useAuthStore from '../store/authStore';
@@ -158,6 +158,10 @@ function Chat({ isChatVisible }) {
   const socketRef = useRef(null);
 
   const [sessions, setSessions] = useState([]);
+  const sessionsRef = useRef([]);
+  useEffect(() => {
+    sessionsRef.current = sessions;
+  }, [sessions]);
   const [messages, setMessages] = useState({});
   const [typingStatus, setTypingStatus] = useState({});
   const [inputMessage, setInputMessage] = useState('');
@@ -720,9 +724,15 @@ function Chat({ isChatVisible }) {
 
     newSocket.on('receive_message', (msg) => {
       if (msg.sender === 'visitor') {
-        if (activeSessionIdRef.current !== msg.sessionId || !isChatVisibleRef.current) {
-          const audio = new Audio(`${SOCKET_URL}/sound-effect/mixkit-hard-pop-click-2364.wav`);
-          audio.play().catch(e => console.log('Audio error:', e));
+        const foundSession = sessionsRef.current.find(s => s._id === msg.sessionId);
+        const isUnassigned = !foundSession || !foundSession.assignedAgent;
+        const isAssignedToMe = foundSession && foundSession.assignedAgent && foundSession.assignedAgent.toString() === user._id.toString();
+
+        if (isUnassigned || isAssignedToMe) {
+          if (activeSessionIdRef.current !== msg.sessionId || !isChatVisibleRef.current) {
+            const audio = new Audio(`${SOCKET_URL}/sound-effect/mixkit-hard-pop-click-2364.wav`);
+            audio.play().catch(e => console.log('Audio error:', e));
+          }
         }
       }
       setMessages(prev => {
@@ -775,6 +785,15 @@ function Chat({ isChatVisible }) {
         newSocket.emit('call_reject', { sessionId: cId, reason: 'busy' });
         return;
       }
+
+      const foundSession = sessionsRef.current.find(s => s._id === cId);
+      const isUnassigned = !foundSession || !foundSession.assignedAgent;
+      const isAssignedToMe = foundSession && foundSession.assignedAgent && foundSession.assignedAgent.toString() === user._id.toString();
+
+      if (!isUnassigned && !isAssignedToMe) {
+        return; // ignore call events for chats claimed by other agents
+      }
+
       if (cId === activeSessionIdRef.current && isChatVisibleRef.current) {
         updateCallState('incoming');
         setActiveVisitorName(visitorName || callerName || 'Guest');
@@ -1358,8 +1377,17 @@ function Chat({ isChatVisible }) {
                   </div>
                   <div className="flex justify-between items-center">
                     <div className="flex-1 min-w-0">
+                      {session.assignedAgent ? (
+                        <span className="text-[10px] mr-1" style={{ color: session.assignedAgent.toString() === user._id.toString() ? '#00a884' : '#53bdeb' }}>
+                          [{session.assignedAgent.toString() === user._id.toString() ? 'You' : (session.assignedAgentName || 'Agent')}] · 
+                        </span>
+                      ) : (
+                        <span className="text-[10px] mr-1 text-[#ffe600]">
+                          [Unassigned] · 
+                        </span>
+                      )}
                       {session.source && (
-                        <span className="text-[10px] mr-1" style={{ color: '#00a884' }}>via {session.source} · </span>
+                        <span className="text-[10px] mr-1" style={{ color: '#8696a0' }}>via {session.source} · </span>
                       )}
                       {isTyping ? (
                         <span className="text-xs italic" style={{ color: '#00a884' }}>typing...</span>
@@ -1480,6 +1508,21 @@ function Chat({ isChatVisible }) {
                     {showDropdown && (
                       <div className="absolute top-10 right-0 w-44 rounded-md shadow-xl py-1 z-[100] animate-fade-in"
                         style={{ backgroundColor: '#233138', border: '1px solid #2a3942' }}>
+                        {activeSession && activeSession.assignedAgent && activeSession.assignedAgent.toString() === user._id.toString() && (
+                          <button
+                            onClick={() => {
+                              socket.emit('leave_session', {
+                                sessionId: activeSession._id,
+                                agentName: myWidgetProfile.name,
+                                merchantId: activeSession.merchantId
+                              });
+                              setShowDropdown(false);
+                            }}
+                            className="block w-full text-left px-4 py-2 text-sm transition-colors hover:bg-white/10"
+                            style={{ color: '#e9edef' }}>
+                            Leave Session
+                          </button>
+                        )}
                         <button
                           onClick={() => {
                             socket.emit('close_session', { sessionId: activeSessionId });
@@ -1538,9 +1581,16 @@ function Chat({ isChatVisible }) {
                           </div>
                         )}
                         <div className="flex justify-center my-3 animate-in fade-in duration-200">
-                          <span className="text-xs px-3.5 py-1.5 rounded-md border border-red-500/20 text-red-500 bg-red-500/10 font-semibold shadow-xs">
-                            🚫 {msg.content}
-                          </span>
+                          {msg.content.includes('ended') || msg.content.includes('closed') ? (
+                            <span className="text-xs px-3.5 py-1.5 rounded-md border border-red-500/20 text-red-500 bg-red-500/10 font-semibold shadow-xs">
+                              🚫 {msg.content}
+                            </span>
+                          ) : (
+                            <span className="text-xs px-3.5 py-1.5 rounded-md border border-[#00a884]/20 text-[#00a884] bg-[#00a884]/10 font-semibold shadow-xs flex items-center space-x-1.5">
+                              <UserCheck size={14} className="text-[#00a884]" />
+                              <span>{msg.content}</span>
+                            </span>
+                          )}
                         </div>
                       </React.Fragment>
                     );
@@ -1794,6 +1844,36 @@ function Chat({ isChatVisible }) {
                   style={{ backgroundColor: '#202c33', borderColor: '#2a3942' }}>
                   <p className="text-sm font-semibold" style={{ color: '#8696a0' }}>
                     This chat session has ended.
+                  </p>
+                </div>
+              ) : !activeSession.assignedAgent ? (
+                <div className="flex-shrink-0 py-6 px-4 text-center border-t flex flex-col items-center justify-center space-y-3"
+                  style={{ backgroundColor: '#202c33', borderColor: '#2a3942' }}>
+                  <p className="text-sm font-semibold text-gray-300">
+                    This chat session is currently unassigned.
+                  </p>
+                  <button
+                    onClick={() => {
+                      if (socket) {
+                        socket.emit('join_session', {
+                          sessionId: activeSession._id,
+                          agentId: user._id,
+                          agentName: myWidgetProfile.name,
+                          merchantId: activeSession.merchantId
+                        });
+                      }
+                    }}
+                    className="bg-[#00a884] hover:bg-[#008f6f] text-white font-semibold py-2.5 px-6 rounded-lg shadow-md transition-all active:scale-95 text-xs cursor-pointer"
+                  >
+                    Join / Enroll Session
+                  </button>
+                </div>
+              ) : activeSession.assignedAgent.toString() !== user._id.toString() ? (
+                <div className="flex-shrink-0 py-6 px-4 text-center border-t flex items-center justify-center space-x-2"
+                  style={{ backgroundColor: '#202c33', borderColor: '#2a3942', color: '#8696a0' }}>
+                  <span className="w-2.5 h-2.5 rounded-full bg-blue-500 flex-shrink-0 animate-pulse" />
+                  <p className="text-sm font-semibold">
+                    Agent <strong className="text-white">{activeSession.assignedAgentName || 'another agent'}</strong> is handling this conversation.
                   </p>
                 </div>
               ) : (

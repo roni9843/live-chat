@@ -16,6 +16,8 @@ const chatSessionSchema = new mongoose.Schema({
   lastMessage: { type: String }, // Store the text of the last message
   unreadCount: { type: Number, default: 0 }, // Number of unread messages for the merchant
   lastMessageAt: { type: Date, default: Date.now },
+  assignedAgent: { type: mongoose.Schema.Types.ObjectId, ref: 'Merchant', default: null },
+  assignedAgentName: { type: String, default: null },
   createdAt: { type: Date, default: Date.now }
 });
 
