@@ -157,6 +157,33 @@ function Chat({ isChatVisible }) {
   const [socket, setSocket] = useState(null);
   const socketRef = useRef(null);
 
+  const isCurrentUserOnline = () => {
+    if (!user) return false;
+    if (user.status === 'offline') return false;
+
+    if (user.schedule && user.schedule.enabled) {
+      const now = new Date();
+      const currentHour = now.getHours().toString().padStart(2, '0');
+      const currentMinute = now.getMinutes().toString().padStart(2, '0');
+      const currentTimeString = `${currentHour}:${currentMinute}`;
+      
+      const { start, end } = user.schedule;
+      if (start && end) {
+        if (start <= end) {
+          if (currentTimeString < start || currentTimeString > end) {
+            return false;
+          }
+        } else {
+          // Overnight schedule (e.g. 22:00 to 06:00)
+          if (currentTimeString < start && currentTimeString > end) {
+            return false;
+          }
+        }
+      }
+    }
+    return true;
+  };
+
   const [sessions, setSessions] = useState([]);
   const sessionsRef = useRef([]);
   useEffect(() => {
@@ -730,8 +757,10 @@ function Chat({ isChatVisible }) {
 
         if (isUnassigned || isAssignedToMe) {
           if (activeSessionIdRef.current !== msg.sessionId || !isChatVisibleRef.current) {
-            const audio = new Audio(`${SOCKET_URL}/sound-effect/mixkit-hard-pop-click-2364.wav`);
-            audio.play().catch(e => console.log('Audio error:', e));
+            if (isCurrentUserOnline()) {
+              const audio = new Audio(`${SOCKET_URL}/sound-effect/mixkit-hard-pop-click-2364.wav`);
+              audio.play().catch(e => console.log('Audio error:', e));
+            }
           }
         }
       }
@@ -797,16 +826,20 @@ function Chat({ isChatVisible }) {
       if (cId === activeSessionIdRef.current && isChatVisibleRef.current) {
         updateCallState('incoming');
         setActiveVisitorName(visitorName || callerName || 'Guest');
-        playRingtone('ringing');
+        if (isCurrentUserOnline()) {
+          playRingtone('ringing');
+        }
       } else {
-        window.dispatchEvent(new CustomEvent('global_incoming_call', {
-          detail: {
-            sessionId: cId,
-            callerName,
-            callerType,
-            visitorName: visitorName || callerName || 'Guest'
-          }
-        }));
+        if (isCurrentUserOnline()) {
+          window.dispatchEvent(new CustomEvent('global_incoming_call', {
+            detail: {
+              sessionId: cId,
+              callerName,
+              callerType,
+              visitorName: visitorName || callerName || 'Guest'
+            }
+          }));
+        }
       }
     });
 
@@ -1377,6 +1410,11 @@ function Chat({ isChatVisible }) {
                   </div>
                   <div className="flex justify-between items-center">
                     <div className="flex-1 min-w-0">
+                      {session.isOfflineLead && (
+                        <span className="text-[9px] bg-[#2a3942] text-[#8696a0] border border-[#3b4a54] px-1.5 py-0.5 rounded font-semibold uppercase mr-1.5 flex-shrink-0 inline-block leading-none">
+                          Offline Lead
+                        </span>
+                      )}
                       {session.assignedAgent ? (
                         <span className="text-[10px] mr-1" style={{ color: session.assignedAgent.toString() === user._id.toString() ? '#00a884' : '#53bdeb' }}>
                           [{session.assignedAgent.toString() === user._id.toString() ? 'You' : (session.assignedAgentName || 'Agent')}] · 
@@ -1453,7 +1491,9 @@ function Chat({ isChatVisible }) {
                       source: activeSession.source,
                       email: activeSession.visitorEmail,
                       phone: activeSession.visitorPhone,
-                      details: activeSession.visitorDetails
+                      details: activeSession.visitorDetails,
+                      isOfflineLead: activeSession.isOfflineLead,
+                      offlineFields: activeSession.offlineFields
                     })}
                   >
                     <button onClick={(e) => { e.stopPropagation(); setActiveSessionId(null); }}
@@ -2110,6 +2150,20 @@ function Chat({ isChatVisible }) {
                             <span className="text-sm break-all" style={{ color: '#e9edef' }}>{value}</span>
                           </div>
                         ))}
+                        {selectedProfileInfo.isOfflineLead && selectedProfileInfo.offlineFields && (
+                          Object.entries(selectedProfileInfo.offlineFields instanceof Map ? Object.fromEntries(selectedProfileInfo.offlineFields) : selectedProfileInfo.offlineFields).map(([k, v]) => {
+                            if (['name', 'email', 'phone', 'message'].includes(k.toLowerCase())) return null;
+                            const fieldLabel = k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                            return (
+                              <div key={k} className="rounded-lg p-3" style={{ backgroundColor: '#202c33' }}>
+                                <span className="block text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: '#8696a0' }}>
+                                  {fieldLabel}
+                                </span>
+                                <span className="text-sm break-all" style={{ color: '#e9edef' }}>{v}</span>
+                              </div>
+                            );
+                          })
+                        )}
                       </>
                     ) : (
                       <>

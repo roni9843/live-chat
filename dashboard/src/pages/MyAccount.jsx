@@ -8,14 +8,9 @@ const API_URL = `${import.meta.env.VITE_API_URL || 'https://jh5nng6t-5000.asse.d
 function MyAccount() {
   const { user } = useAuthStore();
 
-  const [profile, setProfile] = useState({ name: '', email: '', websiteUrl: '', profilePic: '' });
-  const [passwords, setPasswords] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
-
-  const [profileMessage, setProfileMessage] = useState({ type: '', text: '' });
-  const [passwordMessage, setPasswordMessage] = useState({ type: '', text: '' });
-  const [isLoading, setIsLoading] = useState(false);
-  const [isUploadingPic, setIsUploadingPic] = useState(false);
-  const fileInputRef = useRef(null);
+  const [scheduleEnabled, setScheduleEnabled] = useState(false);
+  const [scheduleStart, setScheduleStart] = useState('09:00');
+  const [scheduleEnd, setScheduleEnd] = useState('18:00');
 
   useEffect(() => {
     if (user) {
@@ -25,8 +20,44 @@ function MyAccount() {
         websiteUrl: user.websiteUrl || '',
         profilePic: user.profilePic || ''
       });
+      setScheduleEnabled(user.schedule?.enabled || false);
+      setScheduleStart(user.schedule?.start || '09:00');
+      setScheduleEnd(user.schedule?.end || '18:00');
     }
   }, [user]);
+
+  const handleScheduleUpdate = async (e) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setProfileMessage({ type: '', text: '' });
+
+    try {
+      const config = {
+        headers: { Authorization: `Bearer ${user.token}` }
+      };
+      const schedulePayload = {
+        schedule: {
+          enabled: scheduleEnabled,
+          start: scheduleStart,
+          end: scheduleEnd
+        }
+      };
+      const { data } = await axios.put(`${API_URL}/profile`, schedulePayload, config);
+
+      const updatedUser = { ...user, ...data };
+      localStorage.setItem('merchantUser', JSON.stringify(updatedUser));
+      useAuthStore.setState({ user: updatedUser });
+
+      setProfileMessage({ type: 'success', text: 'Availability schedule updated successfully!' });
+    } catch (error) {
+      setProfileMessage({
+        type: 'error',
+        text: error.response?.data?.message || 'Failed to update schedule'
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleProfilePicUpload = async (e) => {
     const file = e.target.files[0];
@@ -184,7 +215,7 @@ function MyAccount() {
                   type="email"
                   value={profile.email}
                   disabled
-                  className="w-full px-4 py-2 border border-gray-200 bg-gray-50 text-gray-500 rounded-lg outline-none cursor-not-allowed"
+                  className="w-full px-4 py-2 border border-gray-250 bg-gray-50 text-gray-500 rounded-lg outline-none cursor-not-allowed"
                 />
               </div>
               <div>
@@ -254,6 +285,56 @@ function MyAccount() {
                 className="w-full bg-[#00a884] hover:bg-[#008f6f] text-white font-medium py-2 rounded-lg transition shadow-sm mt-4 disabled:opacity-70"
               >
                 Change Password
+              </button>
+            </form>
+          </div>
+
+          {/* Availability Schedule Form */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 col-span-1 md:col-span-2">
+            <h2 className="text-xl font-semibold text-gray-800 mb-6 border-b pb-2">Availability Schedule</h2>
+            <form onSubmit={handleScheduleUpdate} className="space-y-4">
+              <div className="flex items-center space-x-3 bg-gray-50 p-4 rounded-lg border border-gray-200">
+                <input
+                  type="checkbox"
+                  id="scheduleEnabled"
+                  checked={scheduleEnabled}
+                  onChange={(e) => setScheduleEnabled(e.target.checked)}
+                  className="w-4 h-4 text-[#00a884] border-gray-300 rounded focus:ring-[#00a884] focus:ring-opacity-50 cursor-pointer"
+                />
+                <label htmlFor="scheduleEnabled" className="text-sm font-medium text-gray-700 cursor-pointer select-none">
+                  Enable Daily Online Schedule (If disabled, you will be online 24/7 unless manually set to offline)
+                </label>
+              </div>
+
+              {scheduleEnabled && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in duration-200">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Online Start Time</label>
+                    <input
+                      type="time"
+                      value={scheduleStart}
+                      onChange={(e) => setScheduleStart(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#00a884] focus:border-transparent outline-none transition"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Online End Time</label>
+                    <input
+                      type="time"
+                      value={scheduleEnd}
+                      onChange={(e) => setScheduleEnd(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#00a884] focus:border-transparent outline-none transition"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="bg-[#00a884] hover:bg-[#008f6f] text-white font-medium px-6 py-2.5 rounded-lg transition shadow-sm disabled:opacity-70 cursor-pointer"
+              >
+                Save Schedule Settings
               </button>
             </form>
           </div>

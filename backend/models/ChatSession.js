@@ -18,6 +18,8 @@ const chatSessionSchema = new mongoose.Schema({
   lastMessageAt: { type: Date, default: Date.now },
   assignedAgent: { type: mongoose.Schema.Types.ObjectId, ref: 'Merchant', default: null },
   assignedAgentName: { type: String, default: null },
+  isOfflineLead: { type: Boolean, default: false },
+  offlineFields: { type: Map, of: String },
   createdAt: { type: Date, default: Date.now }
 });
 

@@ -66,6 +66,8 @@ exports.loginMerchant = async (req, res) => {
         role: merchant.role,
         widgets: merchant.widgets,
         profilePic: merchant.profilePic || '',
+        status: merchant.status || 'online',
+        schedule: merchant.schedule || { enabled: false, start: '09:00', end: '18:00' },
         token: generateToken(merchant._id, 'merchant'),
       });
     } else {
@@ -159,6 +161,12 @@ exports.updateMerchantProfile = async (req, res) => {
       if (req.body.profilePic !== undefined) {
         merchant.profilePic = req.body.profilePic;
       }
+      if (req.body.status !== undefined) {
+        merchant.status = req.body.status;
+      }
+      if (req.body.schedule !== undefined) {
+        merchant.schedule = req.body.schedule;
+      }
       
       if (req.body.widgets) {
         merchant.widgets = req.body.widgets;
@@ -175,6 +183,8 @@ exports.updateMerchantProfile = async (req, res) => {
         websiteUrl: updatedMerchant.websiteUrl,
         widgets: updatedMerchant.widgets,
         profilePic: updatedMerchant.profilePic || '',
+        status: updatedMerchant.status || 'online',
+        schedule: updatedMerchant.schedule || { enabled: false, start: '09:00', end: '18:00' },
         token: generateToken(updatedMerchant._id, 'merchant'),
       });
     } else {
@@ -239,7 +249,7 @@ exports.updateWidget = async (req, res) => {
     domain, companyName, color, position, title, allowedDomains, isActive, 
     authorizedUsers, pendingUsers, welcomeMessage, spacingBottom, spacingSide,
     launcherType, launcherText, themeMode, bgType, bgColor, bgImage,
-    ownerNickname, ownerDesignation, ownerProfilePic, faqs, preChatForm, logo
+    ownerNickname, ownerDesignation, ownerProfilePic, faqs, preChatForm, logo, offlineForm
   } = req.body;
   try {
     const merchant = await Merchant.findOne({ "widgets._id": req.params.widgetId });
@@ -277,6 +287,7 @@ exports.updateWidget = async (req, res) => {
         if (faqs !== undefined) widget.faqs = faqs;
         if (preChatForm !== undefined) widget.preChatForm = preChatForm;
         if (logo !== undefined) widget.logo = logo;
+        if (offlineForm !== undefined) widget.offlineForm = offlineForm;
         
         await merchant.save();
         await merchant.populate('widgets.authorizedUsers.user', 'name email');
@@ -319,18 +330,63 @@ exports.getWidgetPublic = async (req, res) => {
     // Developer fallback to make client test environment load dynamic widget styles out-of-the-box
     if (queryWidgetId === 'temp_widget_id') {
       merchant = await Merchant.findOne({ "widgets.0": { $exists: true } })
-        .populate('widgets.authorizedUsers.user', 'name profilePic');
+        .populate('widgets.authorizedUsers.user', 'name profilePic status schedule');
       if (merchant && merchant.widgets.length > 0) {
         queryWidgetId = merchant.widgets[0]._id;
       }
     } else {
       merchant = await Merchant.findOne({ "widgets._id": queryWidgetId })
-        .populate('widgets.authorizedUsers.user', 'name profilePic');
+        .populate('widgets.authorizedUsers.user', 'name profilePic status schedule');
     }
 
     if (merchant) {
       const widget = merchant.widgets.id(queryWidgetId);
       
+      const connectedAgents = req.app.get('connectedAgents') || new Set();
+
+      const isAgentOnline = (agentUser) => {
+        if (!agentUser) return false;
+        
+        // 1. Must be connected to socket
+        const isConnected = connectedAgents.has(agentUser._id.toString());
+        if (!isConnected) return false;
+
+        // 2. Must not be manually toggled offline
+        if (agentUser.status === 'offline') return false;
+
+        // 3. If schedule is enabled, check current time in HH:mm format
+        if (agentUser.schedule && agentUser.schedule.enabled) {
+          const now = new Date();
+          const currentHour = now.getHours().toString().padStart(2, '0');
+          const currentMinute = now.getMinutes().toString().padStart(2, '0');
+          const currentTimeString = `${currentHour}:${currentMinute}`;
+          
+          const { start, end } = agentUser.schedule;
+          if (start && end) {
+            if (start <= end) {
+              if (currentTimeString < start || currentTimeString > end) {
+                return false;
+              }
+            } else {
+              // Overnight schedule (e.g. 22:00 to 06:00)
+              if (currentTimeString < start && currentTimeString > end) {
+                return false;
+              }
+            }
+          }
+        }
+        return true;
+      };
+
+      const isOwnerOnline = isAgentOnline(merchant);
+      let isAnyAgentOnline = false;
+
+      if (widget.authorizedUsers) {
+        isAnyAgentOnline = widget.authorizedUsers.some(au => au.user && isAgentOnline(au.user));
+      }
+
+      const isWidgetOnline = isOwnerOnline || isAnyAgentOnline;
+
       // Compile representatives/agents
       const agents = [];
       const ownerName = widget.ownerNickname || merchant.name;
@@ -381,7 +437,19 @@ exports.getWidgetPublic = async (req, res) => {
         logo: widget.logo || '',
         agents,
         faqs: widget.faqs || [],
-        preChatForm: widget.preChatForm
+        preChatForm: widget.preChatForm,
+        isWidgetOnline,
+        offlineForm: widget.offlineForm || {
+          enabled: true,
+          title: 'Leave a message',
+          message: 'All agents are offline. Please state your problems and post them.',
+          fields: [
+            { id: 'name', label: 'Name', type: 'text', required: true, placeholder: 'Enter your name...' },
+            { id: 'email', label: 'Email', type: 'email', required: true, placeholder: 'Enter your email...' },
+            { id: 'phone', label: 'Phone Number', type: 'tel', required: false, placeholder: 'Enter your phone number...' },
+            { id: 'message', label: 'Message', type: 'textarea', required: true, placeholder: 'Describe your issue...' }
+          ]
+        }
       });
     } else {
       res.status(404).json({ message: 'Widget not found' });
@@ -558,6 +626,84 @@ exports.respondToInvite = async (req, res) => {
 
     res.json({ message: `Invite ${action}ed successfully` });
   } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+exports.postOfflineMessage = async (req, res) => {
+  const { widgetId } = req.params;
+  const { visitorId, visitorName, visitorEmail, visitorPhone, visitorDomain, visitorPath, message, fields } = req.body;
+  
+  try {
+    const ChatSession = require('../models/ChatSession');
+    const Message = require('../models/Message');
+
+    // Find the widget owner
+    const owner = await Merchant.findOne({ "widgets._id": widgetId });
+    if (!owner) {
+      return res.status(404).json({ message: 'Widget not found' });
+    }
+    
+    const widget = owner.widgets.id(widgetId);
+
+    // Check if there is an active session already
+    let session = await ChatSession.findOne({ merchantId: owner._id, visitorId, status: 'active' });
+    
+    if (!session) {
+      session = await ChatSession.create({
+        merchantId: owner._id,
+        widgetId,
+        source: widget.companyName || 'Website',
+        visitorId,
+        visitorName: visitorName || 'Guest',
+        visitorEmail: visitorEmail || '',
+        visitorPhone: visitorPhone || '',
+        visitorDetails: message || '',
+        visitorDomain: visitorDomain || 'Unknown',
+        visitorPath: visitorPath || '/',
+        visitorStatus: 'offline',
+        isOfflineLead: true,
+        offlineFields: fields || {}
+      });
+    } else {
+      session.isOfflineLead = true;
+      if (fields) {
+        session.offlineFields = fields;
+      }
+      await session.save();
+    }
+
+    // Create message from visitor
+    const visitorMsg = await Message.create({
+      sessionId: session._id,
+      sender: 'visitor',
+      content: message || 'Offline lead submitted',
+      status: 'unread'
+    });
+
+    session.lastMessage = message || 'Offline lead submitted';
+    session.lastMessageAt = Date.now();
+    session.unreadCount = (session.unreadCount || 0) + 1;
+    await session.save();
+
+    // Notify merchant room
+    const io = req.app.get('io');
+    if (io) {
+      io.to(owner._id.toString()).emit('new_session', session);
+      io.to(owner._id.toString()).emit('receive_message', visitorMsg);
+      // Also notify any authorized users
+      if (widget.authorizedUsers) {
+        widget.authorizedUsers.forEach(au => {
+          const uid = au.user ? au.user.toString() : au.toString();
+          io.to(uid).emit('new_session', session);
+          io.to(uid).emit('receive_message', visitorMsg);
+        });
+      }
+    }
+
+    res.json({ success: true, session });
+  } catch (error) {
+    console.error('Error posting offline message:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };

@@ -11,6 +11,7 @@ const {
   updateWidget,
   deleteWidget,
   getWidgetPublic,
+  postOfflineMessage,
   searchMerchants,
   inviteUserToWidget,
   getPendingInvites,
@@ -41,6 +42,7 @@ router.post('/merchant/invites/:widgetId/respond', protect, respondToInvite);
 
 // Public Widget Route
 router.get('/widgets/:widgetId', getWidgetPublic);
+router.post('/widgets/:widgetId/offline-message', postOfflineMessage);
 
 router.post('/admin/login', loginAdmin);
 

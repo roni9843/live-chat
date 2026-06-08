@@ -4,8 +4,10 @@ const Message = require('../models/Message');
 const Merchant = require('../models/Merchant');
 
 const sessionViewers = {}; // sessionId -> { socketId: { agentId, name, profilePic } }
+const connectedAgents = new Set();
 
-module.exports = (io) => {
+module.exports = (io, app) => {
+  if (app) app.set('connectedAgents', connectedAgents);
   // Background job to clean up inactive sessions (10 minutes inactivity timeout)
   setInterval(async () => {
     const INACTIVITY_TIMEOUT = 10 * 60 * 1000; // 10 minutes
@@ -109,6 +111,8 @@ module.exports = (io) => {
 
     // Merchant joins their own room to listen to all their chats
     socket.on('merchant_join', async (merchantId) => {
+      socket.merchantId = merchantId;
+      connectedAgents.add(merchantId.toString());
       socket.join(merchantId);
       console.log(`Merchant ${merchantId} joined room`);
       try {
@@ -533,6 +537,18 @@ module.exports = (io) => {
     socket.on('disconnect', async () => {
       console.log('User disconnected:', socket.id);
       cleanupViewing(socket);
+      
+      if (socket.merchantId) {
+        try {
+          const sockets = await io.in(socket.merchantId.toString()).fetchSockets();
+          if (sockets.length === 0) {
+            connectedAgents.delete(socket.merchantId.toString());
+          }
+        } catch (err) {
+          console.error('Error on agent disconnect cleanup:', err);
+        }
+      }
+
       if (socket.sessionId) {
         try {
           const session = await ChatSession.findByIdAndUpdate(
@@ -544,7 +560,7 @@ module.exports = (io) => {
             await notifyMerchants(socket.merchantId, socket.sessionId, 'session_updated', session);
           }
         } catch (err) {
-          console.error('Error handling disconnect offline status', err);
+          console.error('Error handling visitor disconnect offline status', err);
         }
       }
     });

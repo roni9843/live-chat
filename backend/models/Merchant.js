@@ -73,8 +73,34 @@ const merchantSchema = new mongoose.Schema({
       }
     },
     logo: { type: String, default: '' },
+    offlineForm: {
+      enabled: { type: Boolean, default: true },
+      title: { type: String, default: 'Leave a message' },
+      message: { type: String, default: 'All agents are offline. Please state your problems and post them.' },
+      fields: {
+        type: [{
+          id: { type: String, required: true },
+          label: { type: String, required: true },
+          type: { type: String, default: 'text' },
+          required: { type: Boolean, default: true },
+          placeholder: { type: String, default: '' }
+        }],
+        default: [
+          { id: 'name', label: 'Name', type: 'text', required: true, placeholder: 'Enter your name...' },
+          { id: 'email', label: 'Email', type: 'email', required: true, placeholder: 'Enter your email...' },
+          { id: 'phone', label: 'Phone Number', type: 'tel', required: false, placeholder: 'Enter your phone number...' },
+          { id: 'message', label: 'Message', type: 'textarea', required: true, placeholder: 'Describe your issue...' }
+        ]
+      }
+    },
     createdAt: { type: Date, default: Date.now }
   }],
+  status: { type: String, enum: ['online', 'offline'], default: 'online' },
+  schedule: {
+    enabled: { type: Boolean, default: false },
+    start: { type: String, default: '09:00' },
+    end: { type: String, default: '18:00' }
+  },
   createdAt: { type: Date, default: Date.now }
 });
 

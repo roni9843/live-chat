@@ -44,7 +44,7 @@ const io = new Server(server, {
 });
 app.set('io', io);
 
-require('./sockets/chatSocket')(io);
+require('./sockets/chatSocket')(io, app);
 
 // Routes
 app.get('/', (req, res) => {

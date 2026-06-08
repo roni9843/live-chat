@@ -170,6 +170,29 @@ function App({ merchantId, widgetId }) {
   const [preChatEmail, setPreChatEmail] = useState('');
   const [preChatPhone, setPreChatPhone] = useState('');
   const [preChatMessage, setPreChatMessage] = useState('');
+  const [isOfflineSubmitted, setIsOfflineSubmitted] = useState(false);
+  const [offlineFormValues, setOfflineFormValues] = useState({});
+
+  useEffect(() => {
+    if (widgetConfig) {
+      const initial = {};
+      const fields = widgetConfig.offlineForm?.fields || [
+        { id: 'name', label: 'Name', type: 'text', required: true },
+        { id: 'email', label: 'Email', type: 'email', required: true },
+        { id: 'phone', label: 'Phone Number', type: 'tel', required: false },
+        { id: 'message', label: 'Message', type: 'textarea', required: true }
+      ];
+      fields.forEach(f => {
+        let val = '';
+        if (f.id === 'name') val = localStorage.getItem(`visitorName_${widgetId}`) || '';
+        else if (f.id === 'email') val = localStorage.getItem(`visitorEmail_${widgetId}`) || '';
+        else if (f.id === 'phone') val = localStorage.getItem(`visitorPhone_${widgetId}`) || '';
+        initial[f.id] = val;
+      });
+      setOfflineFormValues(initial);
+    }
+  }, [widgetConfig, widgetId]);
+
   const pendingFirstMessageRef = useRef('');
   const [isSessionEnded, setIsSessionEnded] = useState(false);
   const [visualHeight, setVisualHeight] = useState('100%');
@@ -1201,6 +1224,152 @@ function App({ merchantId, widgetId }) {
     });
   };
 
+  const handleOfflineFormSubmit = (e) => {
+    e.preventDefault();
+    const nameVal = offlineFormValues.name || '';
+    const emailVal = offlineFormValues.email || '';
+    const phoneVal = offlineFormValues.phone || '';
+    if (nameVal) localStorage.setItem(`visitorName_${widgetId}`, nameVal);
+    if (emailVal) localStorage.setItem(`visitorEmail_${widgetId}`, emailVal);
+    if (phoneVal) localStorage.setItem(`visitorPhone_${widgetId}`, phoneVal);
+
+    const visitorId = localStorage.getItem('visitorId') || Math.random().toString(36).substring(7);
+    localStorage.setItem('visitorId', visitorId);
+
+    const payload = {
+      visitorId,
+      visitorName: nameVal || 'Guest ' + visitorId.substring(0, 4),
+      visitorEmail: emailVal,
+      visitorPhone: phoneVal,
+      visitorDomain: window.location.hostname,
+      visitorPath: window.location.pathname,
+      message: offlineFormValues.message || 'Offline lead query',
+      fields: offlineFormValues
+    };
+
+    fetch(`${SOCKET_URL}/api/widgets/${widgetId}/offline-message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        setIsOfflineSubmitted(true);
+        if (data.session && data.session._id) {
+          setSessionId(data.session._id);
+          localStorage.setItem(`visitorSessionId_${widgetId}`, data.session._id);
+        }
+      } else {
+        alert('Failed to send message. Please try again.');
+      }
+    })
+    .catch(err => {
+      console.error(err);
+      alert('Error sending message. Please try again.');
+    });
+  };
+
+  const renderOfflineForm = () => {
+    const title = widgetConfig.offlineForm?.title || 'Leave a message';
+    const message = widgetConfig.offlineForm?.message || 'All agents are offline. Please state your problems and post them.';
+    const fields = widgetConfig.offlineForm?.fields || [
+      { id: 'name', label: 'Name', type: 'text', required: true, placeholder: 'Enter your name...' },
+      { id: 'email', label: 'Email', type: 'email', required: true, placeholder: 'Enter your email...' },
+      { id: 'phone', label: 'Phone Number', type: 'tel', required: false, placeholder: 'Enter your phone number...' },
+      { id: 'message', label: 'Message', type: 'textarea', required: true, placeholder: 'Describe your issue...' }
+    ];
+
+    return (
+      <form
+        onSubmit={handleOfflineFormSubmit}
+        className="flex-1 flex flex-col justify-between p-6 overflow-y-auto text-left"
+        style={{ backgroundColor: darkTheme.chatBg }}
+      >
+        <div className="space-y-4">
+          <div className="text-center space-y-1 mb-2">
+            <h4 className="font-bold text-sm" style={{ color: isDark ? '#ffffff' : '#111b21' }}>{title}</h4>
+            <p className="text-xs font-normal" style={{ color: darkTheme.textSecondary }}>
+              {message}
+            </p>
+          </div>
+
+          {fields.map(field => (
+            <div key={field.id} className="space-y-1 animate-in fade-in slide-in-from-top-1 duration-150">
+              <label className="block text-xs font-semibold" style={{ color: isDark ? '#ffffff' : '#54656f' }}>
+                {field.label} {field.required && <span className="text-red-500">*</span>}
+              </label>
+              {field.type === 'textarea' ? (
+                <textarea
+                  rows={3}
+                  required={field.required}
+                  value={offlineFormValues[field.id] || ''}
+                  onChange={(e) => setOfflineFormValues(prev => ({ ...prev, [field.id]: e.target.value }))}
+                  placeholder={field.placeholder || ''}
+                  className="w-full px-3 py-2 text-sm rounded-lg outline-none border focus:ring-1 focus:ring-opacity-50 resize-none"
+                  style={{
+                    backgroundColor: 'white',
+                    color: 'black',
+                    borderColor: darkTheme.borderColor,
+                    outlineColor: primaryColor
+                  }}
+                />
+              ) : (
+                <input
+                  type={field.type}
+                  required={field.required}
+                  value={offlineFormValues[field.id] || ''}
+                  onChange={(e) => setOfflineFormValues(prev => ({ ...prev, [field.id]: e.target.value }))}
+                  placeholder={field.placeholder || ''}
+                  className="w-full px-3 py-2 text-sm rounded-lg outline-none border focus:ring-1 focus:ring-opacity-50"
+                  style={{
+                    backgroundColor: 'white',
+                    color: 'black',
+                    borderColor: darkTheme.borderColor,
+                    outlineColor: primaryColor
+                  }}
+                />
+              )}
+            </div>
+          ))}
+        </div>
+
+        <button
+          type="submit"
+          style={{ backgroundColor: primaryColor }}
+          className="w-full py-2.5 rounded-lg text-white font-semibold text-sm shadow-md transition-all duration-200 hover:brightness-95 active:scale-[0.98] mt-6 cursor-pointer"
+        >
+          Post Message
+        </button>
+      </form>
+    );
+  };
+
+  const renderOfflineSuccess = () => {
+    return (
+      <div
+        className="flex-1 flex flex-col items-center justify-center p-6 text-center space-y-4"
+        style={{ backgroundColor: darkTheme.chatBg }}
+      >
+        <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center text-[#00a884] mb-2 animate-bounce">
+          <ShieldCheck size={36} />
+        </div>
+        <h4 className="font-bold text-base" style={{ color: isDark ? '#ffffff' : '#111b21' }}>Thank you!</h4>
+        <p className="text-xs max-w-xs leading-relaxed" style={{ color: darkTheme.textSecondary }}>
+          Your message has been posted. Our team is offline, but we will review your submission and get back to you as soon as possible.
+        </p>
+        <button
+          type="button"
+          onClick={() => setIsOfflineSubmitted(false)}
+          className="px-6 py-2 rounded-lg text-white font-semibold text-xs transition active:scale-95 cursor-pointer"
+          style={{ backgroundColor: primaryColor }}
+        >
+          Send Another Message
+        </button>
+      </div>
+    );
+  };
+
   const renderPreChatForm = () => {
     const fields = widgetConfig.preChatForm?.fields || {};
     return (
@@ -1456,31 +1625,32 @@ function App({ merchantId, widgetId }) {
 
   let headerTitle = widgetConfig.title || widgetConfig.companyName;
   let headerAgents = [];
-  let headerSubtitle = 'Typically replies in minutes';
+  let headerSubtitle = widgetConfig.isWidgetOnline === false ? 'Offline' : 'Typically replies in minutes';
   let showLogoInHeader = false;
 
-  if (activeViewers.length === 1) {
-    headerTitle = activeViewers[0].name;
-    headerAgents = [activeViewers[0]];
-    headerSubtitle = 'Online now';
-  } else if (activeViewers.length > 1) {
-    headerTitle = widgetConfig.companyName;
-    headerAgents = activeViewers;
-    headerSubtitle = `${activeViewers.length} agents online`;
-  } else {
-    // No active viewers (admins are not looking at this chat currently)
-    if (widgetConfig.logo) {
-      showLogoInHeader = true;
-      headerTitle = widgetConfig.title || widgetConfig.companyName;
-      headerSubtitle = 'Typically replies in minutes';
+  if (widgetConfig.isWidgetOnline !== false) {
+    if (activeViewers.length === 1) {
+      headerTitle = activeViewers[0].name;
+      headerAgents = [activeViewers[0]];
+      headerSubtitle = 'Online now';
+    } else if (activeViewers.length > 1) {
+      headerTitle = widgetConfig.companyName;
+      headerAgents = activeViewers;
+      headerSubtitle = `${activeViewers.length} agents online`;
     } else {
-      if (activeAgents.length === 1) {
-        headerTitle = activeAgents[0].name;
-        headerAgents = [activeAgents[0]];
-        headerSubtitle = 'Support Representative';
-      } else if (activeAgents.length > 1) {
-        headerTitle = widgetConfig.companyName;
-        headerAgents = activeAgents;
+      if (widgetConfig.logo) {
+        showLogoInHeader = true;
+        headerTitle = widgetConfig.title || widgetConfig.companyName;
+        headerSubtitle = 'Typically replies in minutes';
+      } else {
+        if (activeAgents.length === 1) {
+          headerTitle = activeAgents[0].name;
+          headerAgents = [activeAgents[0]];
+          headerSubtitle = 'Support Representative';
+        } else if (activeAgents.length > 1) {
+          headerTitle = widgetConfig.companyName;
+          headerAgents = activeAgents;
+        }
       }
     }
   }
@@ -1738,6 +1908,10 @@ function App({ merchantId, widgetId }) {
                 </div>
               </div>
             </div>
+          ) : (widgetConfig.isWidgetOnline === false) && (!sessionId || isSessionEnded) && !isOfflineSubmitted ? (
+            renderOfflineForm()
+          ) : (widgetConfig.isWidgetOnline === false) && (!sessionId || isSessionEnded) && isOfflineSubmitted ? (
+            renderOfflineSuccess()
           ) : widgetConfig.preChatForm?.enabled && !isPreChatSubmitted ? (
             renderPreChatForm()
           ) : callState !== 'idle' ? (

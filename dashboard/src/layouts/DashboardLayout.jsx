@@ -126,6 +126,20 @@ function DashboardLayout() {
     return null; // or redirect, handled by ProtectedRoute later
   }
 
+  const togglePresenceStatus = async () => {
+    try {
+      const newStatus = user.status === 'offline' ? 'online' : 'offline';
+      const config = { headers: { Authorization: `Bearer ${user.token}` } };
+      const { data } = await axios.put(`${API_URL}/api/auth/merchant/profile`, { status: newStatus }, config);
+      const updatedUser = { ...user, ...data };
+      localStorage.setItem('merchantUser', JSON.stringify(updatedUser));
+      useAuthStore.setState({ user: updatedUser });
+    } catch (error) {
+      console.error('Error toggling presence status:', error);
+      alert('Failed to update presence status');
+    }
+  };
+
   return (
     <div className="flex h-screen bg-gray-100 font-sans">
       {/* Main App Sidebar (Slim) */}
@@ -231,6 +245,18 @@ function DashboardLayout() {
             </div>
           )}
         </div>
+
+        {/* Presence Toggle */}
+        <button
+          onClick={togglePresenceStatus}
+          className="w-12 h-12 flex flex-col items-center justify-center rounded-xl transition hover:bg-white/10 text-white cursor-pointer"
+          title={user.status === 'offline' ? 'Offline (Click to go Online)' : 'Online (Click to go Offline)'}
+        >
+          <div className={`w-3.5 h-3.5 rounded-full border border-[#075e54] ${user.status === 'offline' ? 'bg-red-550 bg-red-500' : 'bg-green-400 animate-pulse'}`} />
+          <span className="text-[9px] text-green-200 mt-1.5 font-bold tracking-wide uppercase leading-none">
+            {user.status === 'offline' ? 'Off' : 'On'}
+          </span>
+        </button>
 
         <button
           onClick={handleLogout}

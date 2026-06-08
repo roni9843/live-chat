@@ -6,7 +6,7 @@ import {
   ArrowLeft, Save, Trash2, Search, UserPlus, X, UserCheck,
   Loader2, Globe, Palette, Layout, ToggleLeft, ToggleRight,
   MessageCircle, Copy, Check, Code, Send, Upload, Image as ImageIcon,
-  ChevronUp, ChevronDown, ClipboardList, Lock
+  ChevronUp, ChevronDown, ClipboardList, Lock, Mail
 } from 'lucide-react';
 
 const API_URL = `${import.meta.env.VITE_API_URL || 'https://jh5nng6t-5000.asse.devtunnels.ms'}/api/auth/merchant`;
@@ -51,6 +51,17 @@ function WidgetSettings() {
       phone: { enabled: false, required: false, label: 'Phone Number', placeholder: 'Enter your phone number...' },
       message: { enabled: false, required: false, label: 'Message', placeholder: 'How can we help you?' }
     }
+  });
+  const [offlineForm, setOfflineForm] = useState({
+    enabled: true,
+    title: 'Leave a message',
+    message: 'All agents are offline. Please state your problems and post them.',
+    fields: [
+      { id: 'name', label: 'Name', type: 'text', required: true, placeholder: 'Enter your name...' },
+      { id: 'email', label: 'Email', type: 'email', required: true, placeholder: 'Enter your email...' },
+      { id: 'phone', label: 'Phone Number', type: 'tel', required: false, placeholder: 'Enter your phone number...' },
+      { id: 'message', label: 'Message', type: 'textarea', required: true, placeholder: 'Describe your issue...' }
+    ]
   });
   const [activeTab, setActiveTab] = useState('design'); // 'design', 'faqs', 'prechat', 'access', 'install'
   const [isMobilePreviewExpanded, setIsMobilePreviewExpanded] = useState(true);
@@ -108,6 +119,17 @@ function WidgetSettings() {
           phone: { enabled: false, required: false, label: 'Phone Number', placeholder: 'Enter your phone number...' },
           message: { enabled: false, required: false, label: 'Message', placeholder: 'How can we help you?' }
         }
+      });
+      setOfflineForm(widget.offlineForm || {
+        enabled: true,
+        title: 'Leave a message',
+        message: 'All agents are offline. Please state your problems and post them.',
+        fields: [
+          { id: 'name', label: 'Name', type: 'text', required: true, placeholder: 'Enter your name...' },
+          { id: 'email', label: 'Email', type: 'email', required: true, placeholder: 'Enter your email...' },
+          { id: 'phone', label: 'Phone Number', type: 'tel', required: false, placeholder: 'Enter your phone number...' },
+          { id: 'message', label: 'Message', type: 'textarea', required: true, placeholder: 'Describe your issue...' }
+        ]
       });
     }
   }, [widget]);
@@ -190,6 +212,7 @@ function WidgetSettings() {
         bgImage,
         faqs: filteredFaqs,
         preChatForm,
+        offlineForm,
         logo
       };
 
@@ -1144,6 +1167,210 @@ function WidgetSettings() {
     </form>
   );
 
+  const renderOfflineFormSettings = () => {
+    const handleAddField = () => {
+      setOfflineForm(prev => {
+        const fields = [...(prev.fields || [])];
+        const newId = `custom_field_${Date.now()}`;
+        fields.push({
+          id: newId,
+          label: 'Custom Field',
+          type: 'text',
+          required: false,
+          placeholder: 'Enter details...'
+        });
+        return { ...prev, fields };
+      });
+    };
+
+    const handleRemoveField = (id) => {
+      setOfflineForm(prev => {
+        const fields = (prev.fields || []).filter(f => f.id !== id);
+        return { ...prev, fields };
+      });
+    };
+
+    const handleFieldChange = (id, key, value) => {
+      setOfflineForm(prev => {
+        const fields = (prev.fields || []).map(f => {
+          if (f.id === id) {
+            const updated = { ...f, [key]: value };
+            if (key === 'label' && f.id.startsWith('custom_field_')) {
+              updated.id = value.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/(^_+|_+$)/g, '');
+              if (!updated.id) updated.id = id;
+            }
+            return updated;
+          }
+          return f;
+        });
+        return { ...prev, fields };
+      });
+    };
+
+    return (
+      <form onSubmit={handleSaveGeneral} className="space-y-5 text-left">
+        <div className="flex items-center justify-between border-b pb-3 mb-1">
+          <div className="flex items-center space-x-2">
+            <Mail className="text-[#00a884]" size={20} />
+            <div>
+              <h2 className="text-lg font-bold text-gray-805">Widget Offline Lead Form</h2>
+              <p className="text-xs text-gray-500">Collect visitor queries in a form when all support agents are offline.</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            disabled={!isWidgetAdmin}
+            onClick={() => setOfflineForm(prev => ({ ...prev, enabled: !prev.enabled }))}
+            className={`px-4 py-2 rounded-lg text-xs font-semibold border transition active:scale-95 cursor-pointer ${offlineForm.enabled
+              ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100'
+              : 'bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-200'
+              }`}
+          >
+            {offlineForm.enabled ? '✓ Enabled' : 'Disabled'}
+          </button>
+        </div>
+
+        {offlineForm.enabled && (
+          <div className="space-y-4 animate-in fade-in duration-200">
+            {/* Header Text Settings */}
+            <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-3">
+              <h3 className="text-xs font-bold text-gray-655 uppercase tracking-wider">Form Header Texts</h3>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Form Title</label>
+                <input
+                  type="text"
+                  disabled={!isWidgetAdmin}
+                  value={offlineForm.title || ''}
+                  onChange={(e) => setOfflineForm(prev => ({ ...prev, title: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm rounded-lg outline-none border bg-white border-gray-300 focus:ring-1 focus:ring-[#00a884]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Greeting/Instructions Message</label>
+                <textarea
+                  rows={2}
+                  disabled={!isWidgetAdmin}
+                  value={offlineForm.message || ''}
+                  onChange={(e) => setOfflineForm(prev => ({ ...prev, message: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm rounded-lg outline-none border bg-white border-gray-300 focus:ring-1 focus:ring-[#00a884] resize-none"
+                />
+              </div>
+            </div>
+
+            {/* Fields Settings */}
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <h3 className="text-xs font-bold text-gray-655 uppercase tracking-wider">Form Input Fields</h3>
+                {isWidgetAdmin && (
+                  <button
+                    type="button"
+                    onClick={handleAddField}
+                    className="bg-emerald-50 hover:bg-emerald-100 text-[#00a884] border border-emerald-200 px-3 py-1.5 rounded-lg text-xs font-semibold transition active:scale-95 cursor-pointer"
+                  >
+                    + Add Field
+                  </button>
+                )}
+              </div>
+
+              {(offlineForm.fields || []).map((field, idx) => {
+                const isDefaultField = ['name', 'email', 'phone', 'message'].includes(field.id);
+                return (
+                  <div key={field.id} className="bg-white p-4 rounded-xl border border-gray-200 space-y-3 shadow-xs">
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-xs font-bold text-gray-500 uppercase">Field #{idx + 1}</span>
+                        {isDefaultField && (
+                          <span className="text-[10px] bg-gray-150 text-gray-600 px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider">
+                            Standard
+                          </span>
+                        )}
+                      </div>
+                      {!isDefaultField && isWidgetAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveField(field.id)}
+                          className="text-red-500 hover:text-red-750 text-xs font-semibold hover:underline cursor-pointer"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">Field Label</label>
+                        <input
+                          type="text"
+                          disabled={!isWidgetAdmin}
+                          value={field.label}
+                          onChange={(e) => handleFieldChange(field.id, 'label', e.target.value)}
+                          placeholder="e.g. Order ID, Location..."
+                          className="w-full px-3 py-2 text-sm rounded-lg outline-none border bg-white border-gray-200 focus:ring-1 focus:ring-[#00a884]"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">Input Type</label>
+                        <select
+                          disabled={!isWidgetAdmin || isDefaultField}
+                          value={field.type}
+                          onChange={(e) => handleFieldChange(field.id, 'type', e.target.value)}
+                          className="w-full px-3 py-2 text-sm rounded-lg outline-none border bg-white border-gray-200 focus:ring-1 focus:ring-[#00a884] cursor-pointer"
+                        >
+                          <option value="text">Single Line Text</option>
+                          <option value="email">Email Address</option>
+                          <option value="tel">Phone Number</option>
+                          <option value="textarea">Multi-line Textbox</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">Placeholder Text</label>
+                        <input
+                          type="text"
+                          disabled={!isWidgetAdmin}
+                          value={field.placeholder || ''}
+                          onChange={(e) => handleFieldChange(field.id, 'placeholder', e.target.value)}
+                          placeholder="Instructions inside field..."
+                          className="w-full px-3 py-2 text-sm rounded-lg outline-none border bg-white border-gray-200 focus:ring-1 focus:ring-[#00a884]"
+                        />
+                      </div>
+
+                      <div className="flex items-center space-x-2 pt-5">
+                        <input
+                          type="checkbox"
+                          id={`req-${field.id}`}
+                          disabled={!isWidgetAdmin}
+                          checked={field.required}
+                          onChange={(e) => handleFieldChange(field.id, 'required', e.target.checked)}
+                          className="w-4 h-4 text-[#00a884] border-gray-300 rounded focus:ring-[#00a884]"
+                        />
+                        <label htmlFor={`req-${field.id}`} className="text-xs font-semibold text-gray-650 cursor-pointer select-none">
+                          Required Field
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {isWidgetAdmin && (
+          <button
+            type="submit"
+            disabled={isUpdating}
+            className="w-full bg-[#00a884] hover:bg-[#008f6f] text-white py-2.5 rounded-lg text-sm font-semibold transition shadow-sm flex items-center justify-center space-x-2 active:scale-98 cursor-pointer"
+          >
+            <Save size={16} />
+            <span>Save Offline Form Settings</span>
+          </button>
+        )}
+      </form>
+    );
+  };
+
   const renderPreChatFormSettings = () => {
     const handleFieldToggle = (fieldName, property) => {
       setPreChatForm(prev => {
@@ -1564,12 +1791,12 @@ function WidgetSettings() {
           )}
         </div>
 
-        {/* Desktop Header Navigation Tab Bar */}
         <div className="hidden lg:flex border-b border-gray-200 overflow-x-auto no-scrollbar whitespace-nowrap bg-white rounded-xl p-1.5 shadow-xs border border-gray-150 mb-6 gap-1">
           {[
             { id: 'design', name: 'Design & Basics', icon: Palette },
             { id: 'faqs', name: 'Auto-Answers (FAQs)', icon: MessageCircle },
             { id: 'prechat', name: 'Pre-Chat Form', icon: ClipboardList },
+            { id: 'offline', name: 'Offline Form', icon: Mail },
             { id: 'access', name: 'Team Access', icon: UserCheck },
             { id: 'install', name: 'Install Script', icon: Code }
           ].map(tab => {
@@ -1600,15 +1827,13 @@ function WidgetSettings() {
               {activeTab === 'design' && renderDesignForm()}
               {activeTab === 'faqs' && renderFaqsForm()}
               {activeTab === 'prechat' && (
-                <div className="space-y-6">
-                  <div className="flex items-center space-x-2 border-b pb-3 mb-1">
-                    <ClipboardList className="text-[#00a884]" size={20} />
-                    <div>
-                      <h2 className="text-lg font-bold text-gray-805">Pre-Chat Registration Form</h2>
-                      <p className="text-xs text-gray-500">Configure fields visitors must fill before chatting.</p>
-                    </div>
-                  </div>
+                <div className="animate-in fade-in duration-200">
                   {renderPreChatFormSettings()}
+                </div>
+              )}
+              {activeTab === 'offline' && (
+                <div className="animate-in fade-in duration-200">
+                  {renderOfflineFormSettings()}
                 </div>
               )}
               {activeTab === 'access' && (
@@ -1729,6 +1954,26 @@ function WidgetSettings() {
             {expandedAccordion === 'prechat' && (
               <div className="p-5 border-t border-gray-100 animate-in slide-in-from-top-1 duration-200">
                 {renderPreChatFormSettings()}
+              </div>
+            )}
+          </div>
+
+          {/* Accordion: Offline Form */}
+          <div className="bg-white rounded-xl shadow-xs border border-gray-100 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setExpandedAccordion(expandedAccordion === 'offline' ? null : 'offline')}
+              className="w-full flex items-center justify-between p-4 bg-gray-50 hover:bg-gray-100 transition cursor-pointer font-bold text-gray-808 text-sm outline-none"
+            >
+              <div className="flex items-center space-x-2">
+                <Mail size={16} className="text-[#00a884]" />
+                <span>Offline Form</span>
+              </div>
+              {expandedAccordion === 'offline' ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
+            </button>
+            {expandedAccordion === 'offline' && (
+              <div className="p-5 border-t border-gray-100 animate-in slide-in-from-top-1 duration-200">
+                {renderOfflineFormSettings()}
               </div>
             )}
           </div>
