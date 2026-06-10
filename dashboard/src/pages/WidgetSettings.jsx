@@ -496,7 +496,7 @@ function WidgetSettings() {
   };
 
   const getScriptCode = () => {
-    const WIDGET_SCRIPT_URL = `${import.meta.env.VITE_WIDGET_URL || 'http://localhost:5173'}/assets/widget.js`;
+    const WIDGET_SCRIPT_URL = import.meta.env.VITE_WIDGET_SCRIPT_URL || `${import.meta.env.VITE_WIDGET_URL || 'http://localhost:5173'}/assets/widget.js`;
     return `<script 
   src="${WIDGET_SCRIPT_URL}" 
   id="ochat-script" 

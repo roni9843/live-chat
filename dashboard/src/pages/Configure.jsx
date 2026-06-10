@@ -5,7 +5,7 @@ import useAuthStore from '../store/authStore';
 import { Copy, Check, Code, Settings, Plus, Trash2, Globe, X } from 'lucide-react';
 
 const API_URL = `${import.meta.env.VITE_API_URL || 'https://jh5nng6t-5000.asse.devtunnels.ms'}/api/auth/merchant`;
-const WIDGET_SCRIPT_URL = `${import.meta.env.VITE_WIDGET_URL || 'http://localhost:5173'}/assets/widget.js`; // Will be replaced by prod URL in future
+const WIDGET_SCRIPT_URL = import.meta.env.VITE_WIDGET_SCRIPT_URL || `${import.meta.env.VITE_WIDGET_URL || 'http://localhost:5173'}/assets/widget.js`;
 
 function Configure() {
   const { user, fetchProfile } = useAuthStore();
