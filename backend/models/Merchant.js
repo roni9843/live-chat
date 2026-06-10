@@ -73,6 +73,12 @@ const merchantSchema = new mongoose.Schema({
       }
     },
     logo: { type: String, default: '' },
+    status: { type: String, enum: ['online', 'offline'], default: 'online' },
+    schedule: {
+      enabled: { type: Boolean, default: false },
+      start: { type: String, default: '09:00' },
+      end: { type: String, default: '18:00' }
+    },
     offlineForm: {
       enabled: { type: Boolean, default: true },
       title: { type: String, default: 'Leave a message' },

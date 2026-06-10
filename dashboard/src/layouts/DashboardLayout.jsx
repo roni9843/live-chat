@@ -246,17 +246,6 @@ function DashboardLayout() {
           )}
         </div>
 
-        {/* Presence Toggle */}
-        <button
-          onClick={togglePresenceStatus}
-          className="w-12 h-12 flex flex-col items-center justify-center rounded-xl transition hover:bg-white/10 text-white cursor-pointer"
-          title={user.status === 'offline' ? 'Offline (Click to go Online)' : 'Online (Click to go Offline)'}
-        >
-          <div className={`w-3.5 h-3.5 rounded-full border border-[#075e54] ${user.status === 'offline' ? 'bg-red-550 bg-red-500' : 'bg-green-400 animate-pulse'}`} />
-          <span className="text-[9px] text-green-200 mt-1.5 font-bold tracking-wide uppercase leading-none">
-            {user.status === 'offline' ? 'Off' : 'On'}
-          </span>
-        </button>
 
         <button
           onClick={handleLogout}

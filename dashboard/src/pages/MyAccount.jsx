@@ -8,6 +8,23 @@ const API_URL = `${import.meta.env.VITE_API_URL || 'https://jh5nng6t-5000.asse.d
 function MyAccount() {
   const { user } = useAuthStore();
 
+  const [profile, setProfile] = useState({
+    name: '',
+    email: '',
+    websiteUrl: '',
+    profilePic: ''
+  });
+  const [profileMessage, setProfileMessage] = useState({ type: '', text: '' });
+  const [passwords, setPasswords] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: ''
+  });
+  const [passwordMessage, setPasswordMessage] = useState({ type: '', text: '' });
+  const [isLoading, setIsLoading] = useState(false);
+  const [isUploadingPic, setIsUploadingPic] = useState(false);
+  const fileInputRef = useRef(null);
+
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
   const [scheduleStart, setScheduleStart] = useState('09:00');
   const [scheduleEnd, setScheduleEnd] = useState('18:00');

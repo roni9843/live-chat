@@ -21,6 +21,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/upload', uploadRoutes);
 app.get('/api/widgets/:widgetId', require('./controllers/authController').getWidgetPublic);
+app.post('/api/widgets/:widgetId/offline-message', require('./controllers/authController').postOfflineMessage);
 
 // Serve static files from uploads folder
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -51,7 +52,9 @@ app.get('/', (req, res) => {
   res.send('Live Chat System API is running.');
 });
 
+// Trigger reload 3
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
+

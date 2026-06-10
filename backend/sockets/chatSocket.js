@@ -167,6 +167,54 @@ module.exports = (io, app) => {
         }
 
         if (!session) {
+          // Check if widget is online before creating a new session
+          const merchantUser = await Merchant.findOne({ "widgets._id": widgetId })
+            .populate('widgets.authorizedUsers.user', 'name profilePic status schedule');
+          if (merchantUser) {
+            const widgetObj = merchantUser.widgets.id(widgetId);
+            if (widgetObj) {
+              const isOwnerConnected = connectedAgents.has(merchantUser._id.toString());
+              const isAnyAgentConnected = widgetObj.authorizedUsers?.some(au => au.user && connectedAgents.has(au.user._id.toString())) || false;
+              const isAgentConnected = isOwnerConnected || isAnyAgentConnected;
+
+              let isWidgetOnline = false;
+              if (isAgentConnected) {
+                const widgetStatus = widgetObj.status || 'online';
+                if (widgetStatus === 'online') {
+                  if (widgetObj.schedule && widgetObj.schedule.enabled) {
+                    const now = new Date();
+                    const currentHour = now.getHours().toString().padStart(2, '0');
+                    const currentMinute = now.getMinutes().toString().padStart(2, '0');
+                    const currentTimeString = `${currentHour}:${currentMinute}`;
+                    
+                    const { start, end } = widgetObj.schedule;
+                    if (start && end) {
+                      if (start <= end) {
+                        if (currentTimeString >= start && currentTimeString <= end) {
+                          isWidgetOnline = true;
+                        }
+                      } else {
+                        if (currentTimeString >= start || currentTimeString <= end) {
+                          isWidgetOnline = true;
+                        }
+                      }
+                    } else {
+                      isWidgetOnline = true;
+                    }
+                  } else {
+                    isWidgetOnline = true;
+                  }
+                }
+              }
+
+              if (!isWidgetOnline) {
+                console.log(`Blocked session creation for visitor ${visitorId} because widget ${widgetId} is offline`);
+                socket.emit('widget_offline_state', { offline: true });
+                return;
+              }
+            }
+          }
+
           // Generate a unique 4 character alphanumeric string
           const randomId = Math.random().toString(36).substring(2, 6);
           
@@ -185,6 +233,7 @@ module.exports = (io, app) => {
           });
         } else {
           session.visitorStatus = 'online';
+          session.isOfflineLead = false; // Reset offline lead status as they are now active
           if (visitorDomain) session.visitorDomain = visitorDomain;
           if (visitorPath) session.visitorPath = visitorPath;
           if (vName) session.visitorName = vName;
@@ -215,7 +264,7 @@ module.exports = (io, app) => {
     });
 
     // Handle incoming messages
-    socket.on('send_message', async ({ sessionId, sender, content, merchantId, fileUrl, fileType, replyTo, senderId, senderName, senderProfilePic }) => {
+    socket.on('send_message', async ({ sessionId, sender, content, merchantId, fileUrl, fileType, replyTo, senderId, senderName, senderProfilePic, tempId }) => {
       try {
         const sessionObj = await ChatSession.findById(sessionId);
         if (!sessionObj || sessionObj.status === 'closed') {
@@ -250,6 +299,7 @@ module.exports = (io, app) => {
         // If visitor sends message, increment unread count
         if (sender === 'visitor') {
           updateData.$inc = { unreadCount: 1 };
+          updateData.isOfflineLead = false; // Reset offline lead status as they are now active
         }
 
         const session = await ChatSession.findByIdAndUpdate(
@@ -260,12 +310,17 @@ module.exports = (io, app) => {
         
         const roomName = `session_${sessionId}`;
         
+        const msgJson = message.toJSON();
+        if (tempId) {
+          msgJson.tempId = tempId;
+        }
+
         // Broadcast to the specific session room (for visitor)
-        io.to(roomName).emit('receive_message', message);
+        io.to(roomName).emit('receive_message', msgJson);
         
         // Broadcast to the merchant's global room to update sidebar and chat area
         if (merchantId) {
-          await notifyMerchants(merchantId, sessionId, 'receive_message', message);
+          await notifyMerchants(merchantId, sessionId, 'receive_message', msgJson);
           await notifyMerchants(merchantId, sessionId, 'session_updated', session);
         }
 

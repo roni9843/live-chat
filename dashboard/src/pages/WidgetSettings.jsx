@@ -6,7 +6,7 @@ import {
   ArrowLeft, Save, Trash2, Search, UserPlus, X, UserCheck,
   Loader2, Globe, Palette, Layout, ToggleLeft, ToggleRight,
   MessageCircle, Copy, Check, Code, Send, Upload, Image as ImageIcon,
-  ChevronUp, ChevronDown, ClipboardList, Lock, Mail
+  ChevronUp, ChevronDown, ClipboardList, Lock, Mail, Clock
 } from 'lucide-react';
 
 const API_URL = `${import.meta.env.VITE_API_URL || 'https://jh5nng6t-5000.asse.devtunnels.ms'}/api/auth/merchant`;
@@ -62,10 +62,15 @@ function WidgetSettings() {
       { id: 'phone', label: 'Phone Number', type: 'tel', required: false, placeholder: 'Enter your phone number...' },
       { id: 'message', label: 'Message', type: 'textarea', required: true, placeholder: 'Describe your issue...' }
     ]
-  });
-  const [activeTab, setActiveTab] = useState('design'); // 'design', 'faqs', 'prechat', 'access', 'install'
+   });
+  const [status, setStatus] = useState('online');
+  const [scheduleEnabled, setScheduleEnabled] = useState(false);
+  const [scheduleStart, setScheduleStart] = useState('09:00');
+  const [scheduleEnd, setScheduleEnd] = useState('18:00');
+
+  const [activeTab, setActiveTab] = useState('availability'); // 'availability', 'design', 'faqs', 'prechat', 'access', 'install'
   const [isMobilePreviewExpanded, setIsMobilePreviewExpanded] = useState(true);
-  const [expandedAccordion, setExpandedAccordion] = useState('design'); // 'design', 'faqs', 'prechat', 'access', 'install'
+  const [expandedAccordion, setExpandedAccordion] = useState('availability'); // 'availability', 'design', 'faqs', 'prechat', 'access', 'install'
 
   // Widget Owner profile states
   const [ownerNickname, setOwnerNickname] = useState('');
@@ -131,6 +136,10 @@ function WidgetSettings() {
           { id: 'message', label: 'Message', type: 'textarea', required: true, placeholder: 'Describe your issue...' }
         ]
       });
+      setStatus(widget.status || 'online');
+      setScheduleEnabled(widget.schedule?.enabled || false);
+      setScheduleStart(widget.schedule?.start || '09:00');
+      setScheduleEnd(widget.schedule?.end || '18:00');
     }
   }, [widget]);
 
@@ -213,7 +222,13 @@ function WidgetSettings() {
         faqs: filteredFaqs,
         preChatForm,
         offlineForm,
-        logo
+        logo,
+        status,
+        schedule: {
+          enabled: scheduleEnabled,
+          start: scheduleStart,
+          end: scheduleEnd
+        }
       };
 
       const { data } = await axios.put(`${API_URL}/widgets/${widgetId}`, payload, config);
@@ -1371,6 +1386,94 @@ function WidgetSettings() {
     );
   };
 
+  const renderAvailabilityFormSettings = () => {
+    return (
+      <form onSubmit={handleSaveGeneral} className="space-y-5 text-left animate-in fade-in duration-200">
+        <div className="flex items-center space-x-2 border-b pb-3 mb-1">
+          <Clock className="text-[#00a884]" size={20} />
+          <div>
+            <h2 className="text-lg font-bold text-gray-805">Widget Availability Settings</h2>
+            <p className="text-xs text-gray-500">Configure whether the widget is online or offline, and define online hour ranges.</p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-gray-650 uppercase mb-2">Availability Status</label>
+            <div className="flex space-x-2">
+              {[
+                { value: 'online', label: 'Always Online' },
+                { value: 'offline', label: 'Always Offline' }
+              ].map((item) => (
+                <button
+                  key={item.value}
+                  type="button"
+                  disabled={!isWidgetAdmin}
+                  onClick={() => setStatus(item.value)}
+                  className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium border transition ${status === item.value ? 'bg-gray-800 text-white border-gray-800 shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-3 bg-gray-50 p-4 rounded-lg border border-gray-200">
+            <input
+              type="checkbox"
+              id="widgetScheduleEnabled"
+              disabled={!isWidgetAdmin}
+              checked={scheduleEnabled}
+              onChange={(e) => setScheduleEnabled(e.target.checked)}
+              className="w-4 h-4 text-[#00a884] border-gray-300 rounded focus:ring-[#00a884] focus:ring-opacity-50 cursor-pointer"
+            />
+            <label htmlFor="widgetScheduleEnabled" className="text-sm font-medium text-gray-700 cursor-pointer select-none">
+              Enable Daily Online Schedule for this Widget
+            </label>
+          </div>
+
+          {scheduleEnabled && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in duration-200">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Online Start Time</label>
+                <input
+                  type="time"
+                  disabled={!isWidgetAdmin}
+                  value={scheduleStart}
+                  onChange={(e) => setScheduleStart(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#00a884] focus:border-transparent outline-none transition bg-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Online End Time</label>
+                <input
+                  type="time"
+                  disabled={!isWidgetAdmin}
+                  value={scheduleEnd}
+                  onChange={(e) => setScheduleEnd(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#00a884] focus:border-transparent outline-none transition bg-white"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {isWidgetAdmin && (
+          <div className="flex justify-end pt-4 border-t border-gray-150">
+            <button
+              type="submit"
+              disabled={isUpdating}
+              className="bg-[#00a884] hover:bg-[#008f6f] text-white font-semibold py-2 px-6 rounded-lg shadow-xs flex items-center transition active:scale-95 disabled:opacity-50 cursor-pointer"
+            >
+              {isUpdating ? <Loader2 size={18} className="animate-spin mr-2" /> : <Save size={18} className="mr-2" />}
+              Save Availability Settings
+            </button>
+          </div>
+        )}
+      </form>
+    );
+  };
+
   const renderPreChatFormSettings = () => {
     const handleFieldToggle = (fieldName, property) => {
       setPreChatForm(prev => {
@@ -1793,6 +1896,7 @@ function WidgetSettings() {
 
         <div className="hidden lg:flex border-b border-gray-200 overflow-x-auto no-scrollbar whitespace-nowrap bg-white rounded-xl p-1.5 shadow-xs border border-gray-150 mb-6 gap-1">
           {[
+            { id: 'availability', name: 'Availability', icon: Clock },
             { id: 'design', name: 'Design & Basics', icon: Palette },
             { id: 'faqs', name: 'Auto-Answers (FAQs)', icon: MessageCircle },
             { id: 'prechat', name: 'Pre-Chat Form', icon: ClipboardList },
@@ -1836,6 +1940,7 @@ function WidgetSettings() {
                   {renderOfflineFormSettings()}
                 </div>
               )}
+              {activeTab === 'availability' && renderAvailabilityFormSettings()}
               {activeTab === 'access' && (
                 <div className="space-y-6">
                   <div className="flex items-center space-x-2 border-b pb-3 mb-1">
@@ -1894,6 +1999,26 @@ function WidgetSettings() {
             {isMobilePreviewExpanded && (
               <div className="p-4 bg-white animate-in slide-in-from-top-1 duration-200 border-t border-gray-100">
                 {renderLivePreviewElement()}
+              </div>
+            )}
+          </div>
+
+          {/* Accordion: Availability */}
+          <div className="bg-white rounded-xl shadow-xs border border-gray-100 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setExpandedAccordion(expandedAccordion === 'availability' ? null : 'availability')}
+              className="w-full flex items-center justify-between p-4 bg-gray-50 hover:bg-gray-100 transition cursor-pointer font-bold text-gray-808 text-sm outline-none"
+            >
+              <div className="flex items-center space-x-2">
+                <Clock size={16} className="text-[#00a884]" />
+                <span>Availability Settings</span>
+              </div>
+              {expandedAccordion === 'availability' ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
+            </button>
+            {expandedAccordion === 'availability' && (
+              <div className="p-5 border-t border-gray-100 animate-in slide-in-from-top-1 duration-200">
+                {renderAvailabilityFormSettings()}
               </div>
             )}
           </div>

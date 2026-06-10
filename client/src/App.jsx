@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MessageCircle, X, Send, Paperclip, Smile, CornerUpLeft, ChevronLeft, MoreVertical, Globe, ShieldCheck, Lock, Mic, MicOff, Play, Pause, Trash2, Phone, PhoneOff, UserCheck } from 'lucide-react';
+import { MessageCircle, X, Send, Paperclip, Smile, CornerUpLeft, ChevronLeft, MoreVertical, Globe, ShieldCheck, Lock, Mic, MicOff, Play, Pause, Trash2, Phone, PhoneOff, UserCheck, Camera } from 'lucide-react';
 import io from 'socket.io-client';
 import EmojiPicker from 'emoji-picker-react';
 
@@ -151,7 +151,9 @@ function App({ merchantId, widgetId }) {
 
   const [messages, setMessages] = useState([]);
   const [inputMessage, setInputMessage] = useState('');
-  const [sessionId, setSessionId] = useState(null);
+  const [sessionId, setSessionId] = useState(() => {
+    return localStorage.getItem(`visitorSessionId_${widgetId}`) || null;
+  });
   const [unreadMessage, setUnreadMessage] = useState(null);
   const [isMerchantTyping, setIsMerchantTyping] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -170,29 +172,6 @@ function App({ merchantId, widgetId }) {
   const [preChatEmail, setPreChatEmail] = useState('');
   const [preChatPhone, setPreChatPhone] = useState('');
   const [preChatMessage, setPreChatMessage] = useState('');
-  const [isOfflineSubmitted, setIsOfflineSubmitted] = useState(false);
-  const [offlineFormValues, setOfflineFormValues] = useState({});
-
-  useEffect(() => {
-    if (widgetConfig) {
-      const initial = {};
-      const fields = widgetConfig.offlineForm?.fields || [
-        { id: 'name', label: 'Name', type: 'text', required: true },
-        { id: 'email', label: 'Email', type: 'email', required: true },
-        { id: 'phone', label: 'Phone Number', type: 'tel', required: false },
-        { id: 'message', label: 'Message', type: 'textarea', required: true }
-      ];
-      fields.forEach(f => {
-        let val = '';
-        if (f.id === 'name') val = localStorage.getItem(`visitorName_${widgetId}`) || '';
-        else if (f.id === 'email') val = localStorage.getItem(`visitorEmail_${widgetId}`) || '';
-        else if (f.id === 'phone') val = localStorage.getItem(`visitorPhone_${widgetId}`) || '';
-        initial[f.id] = val;
-      });
-      setOfflineFormValues(initial);
-    }
-  }, [widgetConfig, widgetId]);
-
   const pendingFirstMessageRef = useRef('');
   const [isSessionEnded, setIsSessionEnded] = useState(false);
   const [visualHeight, setVisualHeight] = useState('100%');
@@ -264,6 +243,39 @@ function App({ merchantId, widgetId }) {
       }
     }
   });
+
+  const [isOfflineSubmitted, setIsOfflineSubmitted] = useState(false);
+  const [offlineFormValues, setOfflineFormValues] = useState({});
+  const [offlineImages, setOfflineImages] = useState([]);
+  const [offlineVoice, setOfflineVoice] = useState('');
+  const [isOfflineRecording, setIsOfflineRecording] = useState(false);
+  const [offlineRecordingTime, setOfflineRecordingTime] = useState(0);
+  const [offlineMediaRecorder, setOfflineMediaRecorder] = useState(null);
+  const [offlineAudioChunks, setOfflineAudioChunks] = useState([]);
+  const [offlineVoiceUploading, setOfflineVoiceUploading] = useState(false);
+  const [offlineImagesUploading, setOfflineImagesUploading] = useState(false);
+  const offlineRecordingTimerRef = useRef(null);
+
+  useEffect(() => {
+    if (widgetConfig) {
+      const initial = {};
+      const fields = widgetConfig.offlineForm?.fields || [
+        { id: 'name', label: 'Name', type: 'text', required: true },
+        { id: 'email', label: 'Email', type: 'email', required: true },
+        { id: 'phone', label: 'Phone Number', type: 'tel', required: false },
+        { id: 'message', label: 'Message', type: 'textarea', required: true }
+      ];
+      fields.forEach(f => {
+        let val = '';
+        if (f.id === 'name') val = localStorage.getItem(`visitorName_${widgetId}`) || '';
+        else if (f.id === 'email') val = localStorage.getItem(`visitorEmail_${widgetId}`) || '';
+        else if (f.id === 'phone') val = localStorage.getItem(`visitorPhone_${widgetId}`) || '';
+        initial[f.id] = val;
+      });
+      setOfflineFormValues(initial);
+    }
+  }, [widgetConfig, widgetId]);
+
   const messagesEndRef = useRef(null);
   const isOpenRef = useRef(isOpen);
   const typingTimeoutRef = useRef(null);
@@ -649,6 +661,23 @@ function App({ merchantId, widgetId }) {
         const formData = new FormData();
         formData.append('file', audioFile);
 
+        const tempId = `temp-${Date.now()}-${Math.round(Math.random() * 100000)}`;
+        const localUrl = URL.createObjectURL(audioBlob);
+
+        const tempMsg = {
+          _id: tempId,
+          tempId,
+          sessionId,
+          sender: 'visitor',
+          content: '',
+          fileUrl: localUrl,
+          fileType: 'audio',
+          isUploading: true,
+          timestamp: Date.now()
+        };
+
+        setMessages(prev => [...prev, tempMsg]);
+
         try {
           const res = await fetch(`${SOCKET_URL}/api/upload`, {
             method: 'POST',
@@ -664,6 +693,7 @@ function App({ merchantId, widgetId }) {
               fileUrl: data.fileUrl,
               fileType: 'audio',
               merchantId,
+              tempId,
               replyTo: replyingTo ? {
                 messageId: replyingTo._id,
                 content: replyingTo.content,
@@ -673,9 +703,14 @@ function App({ merchantId, widgetId }) {
             });
             playSendSound();
             setReplyingTo(null);
+          } else {
+            setMessages(prev => prev.filter(m => m.tempId !== tempId));
+            alert('Upload failed. Please try again.');
           }
         } catch (err) {
           console.error('Failed to upload audio message:', err);
+          setMessages(prev => prev.filter(m => m.tempId !== tempId));
+          alert('Upload failed. Please try again.');
         }
       };
 
@@ -766,31 +801,37 @@ function App({ merchantId, widgetId }) {
       const formEnabled = widgetConfig.preChatForm?.enabled;
       const submitted = localStorage.getItem(`preChatSubmitted_${widgetId}`) === 'true';
 
-      if (!formEnabled || submitted) {
-        const savedName = localStorage.getItem(`visitorName_${widgetId}`) || ('Guest ' + visitorId.substring(0, 4));
-        const savedEmail = localStorage.getItem(`visitorEmail_${widgetId}`) || '';
-        const savedPhone = localStorage.getItem(`visitorPhone_${widgetId}`) || '';
+      const hasActiveSession = !!sessionId || !!localStorage.getItem(`visitorSessionId_${widgetId}`);
+      const isOnline = widgetConfig.isWidgetOnline !== false;
 
-        newSocket.emit('visitor_join', {
-          merchantId,
-          widgetId,
-          companyName: widgetConfig.companyName,
-          visitorId,
-          visitorName: savedName,
-          visitorEmail: savedEmail,
-          visitorPhone: savedPhone,
-          visitorDomain: window.location.hostname,
-          visitorPath: window.location.pathname
-        });
+      if (isOnline || hasActiveSession) {
+        if (!formEnabled || submitted) {
+          const savedName = localStorage.getItem(`visitorName_${widgetId}`) || ('Guest ' + visitorId.substring(0, 4));
+          const savedEmail = localStorage.getItem(`visitorEmail_${widgetId}`) || '';
+          const savedPhone = localStorage.getItem(`visitorPhone_${widgetId}`) || '';
+
+          newSocket.emit('visitor_join', {
+            merchantId,
+            widgetId,
+            companyName: widgetConfig.companyName,
+            visitorId,
+            visitorName: savedName,
+            visitorEmail: savedEmail,
+            visitorPhone: savedPhone,
+            visitorDomain: window.location.hostname,
+            visitorPath: window.location.pathname
+          });
+        }
       }
 
-      newSocket.on('chat_history', ({ sessionId, messages }) => {
+      newSocket.on('chat_history', ({ sessionId: serverSessionId, messages }) => {
         setMessages(messages || []);
-        if (sessionId) {
-          setSessionId(sessionId);
+        if (serverSessionId) {
+          setSessionId(serverSessionId);
+          localStorage.setItem(`visitorSessionId_${widgetId}`, serverSessionId);
           if (pendingFirstMessageRef.current?.trim()) {
             newSocket.emit('send_message', {
-              sessionId,
+              sessionId: serverSessionId,
               sender: 'visitor',
               content: pendingFirstMessageRef.current,
               merchantId
@@ -801,7 +842,26 @@ function App({ merchantId, widgetId }) {
       });
 
       newSocket.on('receive_message', (msg) => {
-        setMessages((prev) => [...prev, msg]);
+        setMessages((prev) => {
+          if (msg.tempId) {
+            const exists = prev.some(m => m.tempId === msg.tempId);
+            if (exists) {
+              const tempMsg = prev.find(m => m.tempId === msg.tempId);
+              if (tempMsg && tempMsg.fileUrl && tempMsg.fileUrl.startsWith('blob:')) {
+                try {
+                  URL.revokeObjectURL(tempMsg.fileUrl);
+                } catch (e) {
+                  console.error('Error revoking object URL:', e);
+                }
+              }
+              return prev.map(m => m.tempId === msg.tempId ? msg : m);
+            }
+          }
+          if (msg._id && prev.some(m => m._id === msg._id)) {
+            return prev;
+          }
+          return [...prev, msg];
+        });
         if (msg.sender === 'merchant') {
           if (!isOpenRef.current) {
             const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
@@ -825,6 +885,7 @@ function App({ merchantId, widgetId }) {
 
       newSocket.on('new_session', (session) => {
         setSessionId(session._id);
+        localStorage.setItem(`visitorSessionId_${widgetId}`, session._id);
       });
 
       newSocket.on('typing_start', ({ sender, senderName, senderProfilePic }) => {
@@ -937,10 +998,18 @@ function App({ merchantId, widgetId }) {
 
       newSocket.on('session_closed', ({ sessionId: closedId }) => {
         localStorage.removeItem(`preChatSubmitted_${widgetId}`);
+        localStorage.removeItem(`visitorSessionId_${widgetId}`);
         setIsSessionEnded(true);
         setSessionId(null);
         setShowInfoPage(false);
         playEndSessionSound();
+      });
+
+      newSocket.on('widget_offline_state', ({ offline }) => {
+        if (offline) {
+          localStorage.removeItem(`visitorSessionId_${widgetId}`);
+          setSessionId(null);
+        }
       });
     }
   }, [isOpen, socket, merchantId, widgetId, widgetConfig]);
@@ -1070,6 +1139,24 @@ function App({ merchantId, widgetId }) {
     const formData = new FormData();
     formData.append('file', file);
 
+    const tempId = `temp-${Date.now()}-${Math.round(Math.random() * 100000)}`;
+    const localUrl = URL.createObjectURL(file);
+    const fileType = file.type.startsWith('image/') ? 'image' : 'file';
+
+    const tempMsg = {
+      _id: tempId,
+      tempId,
+      sessionId,
+      sender: 'visitor',
+      content: '',
+      fileUrl: localUrl,
+      fileType,
+      isUploading: true,
+      timestamp: Date.now()
+    };
+
+    setMessages(prev => [...prev, tempMsg]);
+
     try {
       const res = await fetch(`${SOCKET_URL}/api/upload`, {
         method: 'POST',
@@ -1085,6 +1172,7 @@ function App({ merchantId, widgetId }) {
           fileUrl: data.fileUrl,
           fileType: data.fileType,
           merchantId,
+          tempId,
           replyTo: replyingTo ? {
             messageId: replyingTo._id,
             content: replyingTo.content,
@@ -1094,9 +1182,16 @@ function App({ merchantId, widgetId }) {
         });
         playSendSound();
         setReplyingTo(null);
+      } else {
+        setMessages(prev => prev.filter(m => m.tempId !== tempId));
+        alert('Upload failed. Please try again.');
       }
     } catch (err) {
       console.error('File upload failed', err);
+      setMessages(prev => prev.filter(m => m.tempId !== tempId));
+      alert('Upload failed. Please try again.');
+    } finally {
+      e.target.value = '';
     }
   };
 
@@ -1157,6 +1252,7 @@ function App({ merchantId, widgetId }) {
       socket.emit('close_session', { sessionId });
     }
     localStorage.removeItem(`preChatSubmitted_${widgetId}`);
+    localStorage.removeItem(`visitorSessionId_${widgetId}`);
     setIsSessionEnded(true);
     setSessionId(null);
     setShowInfoPage(false);
@@ -1224,6 +1320,135 @@ function App({ merchantId, widgetId }) {
     });
   };
 
+  const handleOfflineImageUpload = async (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+
+    setOfflineImagesUploading(true);
+    const uploadedUrls = [...offlineImages];
+
+    try {
+      for (const file of files) {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const res = await fetch(`${SOCKET_URL}/api/upload`, {
+          method: 'POST',
+          body: formData
+        });
+        const data = await res.json();
+        if (data.success) {
+          uploadedUrls.push(data.fileUrl);
+        }
+      }
+      setOfflineImages(uploadedUrls);
+    } catch (err) {
+      console.error('Failed to upload offline images:', err);
+      alert('Error uploading one or more images.');
+    } finally {
+      setOfflineImagesUploading(false);
+      e.target.value = '';
+    }
+  };
+
+  const removeOfflineImage = (indexToRemove) => {
+    setOfflineImages(prev => prev.filter((_, idx) => idx !== indexToRemove));
+  };
+
+  const startOfflineVoiceRecording = async () => {
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Microphone access blocked or not supported');
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      const chunks = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          chunks.push(e.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        stream.getTracks().forEach(track => track.stop());
+        if (chunks.length === 0) return;
+
+        const audioBlob = new Blob(chunks, { type: 'audio/webm' });
+        if (audioBlob.size < 1000) return;
+
+        const audioFile = new File([audioBlob], `voice_${Date.now()}.webm`, { type: 'audio/webm' });
+        const formData = new FormData();
+        formData.append('file', audioFile);
+
+        setOfflineVoiceUploading(true);
+        try {
+          const res = await fetch(`${SOCKET_URL}/api/upload`, {
+            method: 'POST',
+            body: formData
+          });
+          const data = await res.json();
+          if (data.success) {
+            setOfflineVoice(data.fileUrl);
+          }
+        } catch (err) {
+          console.error('Failed to upload offline voice recording:', err);
+          alert('Error uploading voice recording.');
+        } finally {
+          setOfflineVoiceUploading(false);
+        }
+      };
+
+      setOfflineAudioChunks(chunks);
+      setOfflineMediaRecorder(recorder);
+      setIsOfflineRecording(true);
+      setOfflineRecordingTime(0);
+      recorder.start();
+
+      if (offlineRecordingTimerRef.current) clearInterval(offlineRecordingTimerRef.current);
+      offlineRecordingTimerRef.current = setInterval(() => {
+        setOfflineRecordingTime(prev => prev + 1);
+      }, 1000);
+
+    } catch (err) {
+      console.error('Microphone access denied:', err);
+      alert('Could not access microphone. Please check permissions.');
+    }
+  };
+
+  const stopOfflineVoiceRecording = () => {
+    if (offlineRecordingTimerRef.current) {
+      clearInterval(offlineRecordingTimerRef.current);
+      offlineRecordingTimerRef.current = null;
+    }
+    if (offlineMediaRecorder && offlineMediaRecorder.state !== 'inactive') {
+      offlineMediaRecorder.stop();
+    }
+    setIsOfflineRecording(false);
+  };
+
+  const cancelOfflineVoiceRecording = () => {
+    if (offlineRecordingTimerRef.current) {
+      clearInterval(offlineRecordingTimerRef.current);
+      offlineRecordingTimerRef.current = null;
+    }
+    if (offlineMediaRecorder) {
+      offlineMediaRecorder.onstop = () => {};
+      if (offlineMediaRecorder.state !== 'inactive') {
+        offlineMediaRecorder.stop();
+      }
+      if (offlineMediaRecorder.stream) {
+        offlineMediaRecorder.stream.getTracks().forEach(track => track.stop());
+      }
+    }
+    setIsOfflineRecording(false);
+    setOfflineAudioChunks([]);
+  };
+
+  const removeOfflineVoice = () => {
+    setOfflineVoice('');
+  };
+
   const handleOfflineFormSubmit = (e) => {
     e.preventDefault();
     const nameVal = offlineFormValues.name || '';
@@ -1244,7 +1469,9 @@ function App({ merchantId, widgetId }) {
       visitorDomain: window.location.hostname,
       visitorPath: window.location.pathname,
       message: offlineFormValues.message || 'Offline lead query',
-      fields: offlineFormValues
+      fields: offlineFormValues,
+      imageUrls: offlineImages,
+      voiceUrl: offlineVoice
     };
 
     fetch(`${SOCKET_URL}/api/widgets/${widgetId}/offline-message`, {
@@ -1256,6 +1483,8 @@ function App({ merchantId, widgetId }) {
     .then(data => {
       if (data.success) {
         setIsOfflineSubmitted(true);
+        setOfflineImages([]);
+        setOfflineVoice('');
         if (data.session && data.session._id) {
           setSessionId(data.session._id);
           localStorage.setItem(`visitorSessionId_${widgetId}`, data.session._id);
@@ -1334,10 +1563,103 @@ function App({ merchantId, widgetId }) {
           ))}
         </div>
 
+        {/* File and Voice Upload Panel for Offline Form */}
+        <div className="space-y-3 pt-3 border-t border-[#e9edef]/15 mt-3 flex-shrink-0">
+          <span className="block text-xs font-semibold" style={{ color: isDark ? '#ffffff' : '#54656f' }}>
+            Attachments (Optional)
+          </span>
+          
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Image Uploader Button */}
+            <label htmlFor="offline-image-file" className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer hover:bg-black/5 active:scale-95 transition-all select-none"
+              style={{ borderColor: darkTheme.borderColor, color: isDark ? '#ffffff' : '#111b21' }}>
+              <Camera size={14} style={{ color: primaryColor }} />
+              <span>Add Images</span>
+            </label>
+            <input
+              id="offline-image-file"
+              type="file"
+              multiple
+              accept="image/*"
+              onChange={handleOfflineImageUpload}
+              disabled={offlineImagesUploading || isOfflineRecording}
+              className="hidden"
+            />
+
+            {/* Voice Recorder Controls */}
+            {isOfflineRecording ? (
+              <div className="flex items-center space-x-2 bg-red-500/10 border border-red-500/25 px-3 py-1.5 rounded-lg">
+                <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                <span className="text-[11px] font-semibold text-red-500 tracking-wider tabular-nums">
+                  {offlineRecordingTime}s
+                </span>
+                <button type="button" onClick={stopOfflineVoiceRecording} className="text-xs text-[#00a884] font-bold pl-1 hover:opacity-80">
+                  Done
+                </button>
+                <button type="button" onClick={cancelOfflineVoiceRecording} className="text-xs text-red-500 font-bold pl-1 hover:opacity-80">
+                  Cancel
+                </button>
+              </div>
+            ) : offlineVoice ? (
+              <div className="flex items-center space-x-2 bg-[#00a884]/15 border border-[#00a884]/25 px-3 py-1.5 rounded-lg text-[#00a884] text-xs font-semibold">
+                <span>🎤 Voice Recorded</span>
+                <button type="button" onClick={removeOfflineVoice} className="text-xs text-red-500 font-bold pl-1 hover:opacity-80" title="Delete voice message">
+                  Delete
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={startOfflineVoiceRecording}
+                disabled={offlineVoiceUploading || offlineImagesUploading}
+                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer hover:bg-black/5 active:scale-95 transition-all select-none"
+                style={{ borderColor: darkTheme.borderColor, color: isDark ? '#ffffff' : '#111b21' }}
+              >
+                <Mic size={14} style={{ color: primaryColor }} />
+                <span>Record Voice</span>
+              </button>
+            )}
+          </div>
+
+          {/* Uploading Status messages */}
+          {offlineImagesUploading && (
+            <p className="text-[10px] text-gray-500 animate-pulse">Uploading images...</p>
+          )}
+          {offlineVoiceUploading && (
+            <p className="text-[10px] text-gray-500 animate-pulse">Uploading voice recording...</p>
+          )}
+
+          {/* Uploaded Images List Preview */}
+          {offlineImages.length > 0 && (
+            <div className="flex flex-wrap gap-2 pt-1">
+              {offlineImages.map((imgUrl, idx) => (
+                <div key={idx} className="relative w-12 h-12 rounded-lg overflow-hidden border border-black/10 flex-shrink-0 shadow-sm">
+                  <img src={imgUrl} alt="preview" className="w-full h-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => removeOfflineImage(idx)}
+                    className="absolute top-0.5 right-0.5 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center text-[9px] font-bold hover:bg-red-600 transition-colors shadow-sm"
+                  >
+                    <X size={10} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Voice Preview Player */}
+          {offlineVoice && !isOfflineRecording && (
+            <div className="pt-1">
+              <audio src={offlineVoice} controls className="w-full max-w-[240px] h-8 text-xs scale-90 origin-left" />
+            </div>
+          )}
+        </div>
+
         <button
           type="submit"
           style={{ backgroundColor: primaryColor }}
-          className="w-full py-2.5 rounded-lg text-white font-semibold text-sm shadow-md transition-all duration-200 hover:brightness-95 active:scale-[0.98] mt-6 cursor-pointer"
+          disabled={offlineImagesUploading || offlineVoiceUploading || isOfflineRecording}
+          className="w-full py-2.5 rounded-lg text-white font-semibold text-sm shadow-md transition-all duration-200 hover:brightness-95 active:scale-[0.98] mt-6 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Post Message
         </button>
@@ -1360,7 +1682,11 @@ function App({ merchantId, widgetId }) {
         </p>
         <button
           type="button"
-          onClick={() => setIsOfflineSubmitted(false)}
+          onClick={() => {
+            setIsOfflineSubmitted(false);
+            setSessionId(null);
+            localStorage.removeItem(`visitorSessionId_${widgetId}`);
+          }}
           className="px-6 py-2 rounded-lg text-white font-semibold text-xs transition active:scale-95 cursor-pointer"
           style={{ backgroundColor: primaryColor }}
         >
@@ -1908,9 +2234,9 @@ function App({ merchantId, widgetId }) {
                 </div>
               </div>
             </div>
-          ) : (widgetConfig.isWidgetOnline === false) && (!sessionId || isSessionEnded) && !isOfflineSubmitted ? (
+          ) : (widgetConfig.isWidgetOnline === false) && !isOfflineSubmitted ? (
             renderOfflineForm()
-          ) : (widgetConfig.isWidgetOnline === false) && (!sessionId || isSessionEnded) && isOfflineSubmitted ? (
+          ) : (widgetConfig.isWidgetOnline === false) && isOfflineSubmitted ? (
             renderOfflineSuccess()
           ) : widgetConfig.preChatForm?.enabled && !isPreChatSubmitted ? (
             renderPreChatForm()
@@ -2118,28 +2444,49 @@ function App({ merchantId, widgetId }) {
 
                           {/* File/image/audio */}
                           {msg.fileUrl && (
-                            <div className="mb-1">
+                            <div className="relative mb-1">
                               {msg.fileType === 'image' ? (
-                                <img
-                                  src={msg.fileUrl}
-                                  alt="attachment"
-                                  className="max-w-full rounded-md object-cover cursor-pointer hover:opacity-90 transition-opacity"
-                                  style={{ maxHeight: '180px' }}
-                                  onClick={() => setFullScreenImage(msg.fileUrl)}
-                                />
+                                <div className="relative overflow-hidden rounded-md">
+                                  <img
+                                    src={msg.fileUrl}
+                                    alt="attachment"
+                                    className={`max-w-full rounded-md object-cover cursor-pointer hover:opacity-90 transition-opacity ${msg.isUploading ? 'blur-[2px] brightness-75' : ''}`}
+                                    style={{ maxHeight: '180px' }}
+                                    onClick={() => !msg.isUploading && setFullScreenImage(msg.fileUrl)}
+                                  />
+                                  {msg.isUploading && (
+                                    <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                                      <div className="w-8 h-8 border-3 border-t-transparent border-white rounded-full animate-spin"></div>
+                                    </div>
+                                  )}
+                                </div>
                               ) : msg.fileType === 'audio' ? (
-                                <AudioPlayer
-                                  url={msg.fileUrl}
-                                  primaryColor={primaryColor}
-                                  isDark={isDark}
-                                  darkTheme={darkTheme}
-                                />
+                                <div className="relative">
+                                  <div className={msg.isUploading ? 'opacity-60 pointer-events-none' : ''}>
+                                    <AudioPlayer
+                                      url={msg.fileUrl}
+                                      primaryColor={primaryColor}
+                                      isDark={isDark}
+                                      darkTheme={darkTheme}
+                                    />
+                                  </div>
+                                  {msg.isUploading && (
+                                    <div className="absolute inset-0 flex items-center justify-center bg-black/10 rounded-xl">
+                                      <div className="w-6 h-6 border-2 border-t-transparent border-white rounded-full animate-spin"></div>
+                                    </div>
+                                  )}
+                                </div>
                               ) : (
-                                <a href={msg.fileUrl} target="_blank" rel="noopener noreferrer"
-                                  className="flex items-center space-x-1.5 text-xs hover:opacity-80"
-                                  style={{ color: primaryColor }}>
-                                  <Paperclip size={13} /> <span>Download File</span>
-                                </a>
+                                <div className="relative">
+                                  <a href={msg.isUploading ? '#' : msg.fileUrl} target="_blank" rel="noopener noreferrer"
+                                    className={`flex items-center space-x-1.5 text-xs hover:opacity-80 ${msg.isUploading ? 'opacity-50 cursor-default' : ''}`}
+                                    style={{ color: primaryColor }}>
+                                    <Paperclip size={13} /> <span>{msg.isUploading ? 'Uploading file...' : 'Download File'}</span>
+                                  </a>
+                                  {msg.isUploading && (
+                                    <span className="ml-2 inline-block w-3 h-3 border-2 border-t-transparent border-current rounded-full animate-spin" style={{ color: primaryColor }} />
+                                  )}
+                                </div>
                               )}
                             </div>
                           )}

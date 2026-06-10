@@ -589,6 +589,30 @@ function Chat({ isChatVisible }) {
         const formData = new FormData();
         formData.append('file', audioFile);
 
+        const tempId = `temp-${Date.now()}-${Math.round(Math.random() * 100000)}`;
+        const localUrl = URL.createObjectURL(audioBlob);
+        const targetSessionId = activeSessionIdRef.current;
+
+        const tempMsg = {
+          _id: tempId,
+          tempId,
+          sessionId: targetSessionId,
+          sender: 'merchant',
+          content: '',
+          fileUrl: localUrl,
+          fileType: 'audio',
+          isUploading: true,
+          timestamp: Date.now(),
+          senderId: user._id,
+          senderName: myWidgetProfile.name,
+          senderProfilePic: myWidgetProfile.profilePic || '',
+        };
+
+        setMessages(prev => {
+          const sessionMsgs = prev[targetSessionId] || [];
+          return { ...prev, [targetSessionId]: [...sessionMsgs, tempMsg] };
+        });
+
         try {
           const res = await fetch(`${SOCKET_URL}/api/upload`, {
             method: 'POST',
@@ -596,9 +620,9 @@ function Chat({ isChatVisible }) {
           });
           const data = await res.json();
 
-          if (data.success && socket && activeSessionIdRef.current) {
+          if (data.success && socket && targetSessionId) {
             socket.emit('send_message', {
-              sessionId: activeSessionIdRef.current,
+              sessionId: targetSessionId,
               sender: 'merchant',
               content: '',
               fileUrl: data.fileUrl,
@@ -607,6 +631,7 @@ function Chat({ isChatVisible }) {
               senderId: user._id,
               senderName: myWidgetProfile.name,
               senderProfilePic: myWidgetProfile.profilePic || '',
+              tempId,
               replyTo: replyingTo ? {
                 messageId: replyingTo._id,
                 content: replyingTo.content,
@@ -616,9 +641,20 @@ function Chat({ isChatVisible }) {
             });
             playSendSound();
             setReplyingTo(null);
+          } else {
+            setMessages(prev => {
+              const sessionMsgs = prev[targetSessionId] || [];
+              return { ...prev, [targetSessionId]: sessionMsgs.filter(m => m.tempId !== tempId) };
+            });
+            alert('Upload failed. Please try again.');
           }
         } catch (err) {
           console.error('Failed to upload audio message:', err);
+          setMessages(prev => {
+            const sessionMsgs = prev[targetSessionId] || [];
+            return { ...prev, [targetSessionId]: sessionMsgs.filter(m => m.tempId !== tempId) };
+          });
+          alert('Upload failed. Please try again.');
         }
       };
 
@@ -731,10 +767,8 @@ function Chat({ isChatVisible }) {
 
     newSocket.on('new_session', (session) => {
       setSessions(prev => {
-        if (!prev.find(s => s._id === session._id)) {
-          return [session, ...prev];
-        }
-        return prev;
+        const filtered = prev.filter(s => s._id !== session._id);
+        return [session, ...filtered];
       });
     });
 
@@ -766,7 +800,24 @@ function Chat({ isChatVisible }) {
       }
       setMessages(prev => {
         const sessionMsgs = prev[msg.sessionId] || [];
-        if (sessionMsgs.find(m => m._id === msg._id)) return prev;
+        if (msg.tempId) {
+          const exists = sessionMsgs.some(m => m.tempId === msg.tempId);
+          if (exists) {
+            const tempMsg = sessionMsgs.find(m => m.tempId === msg.tempId);
+            if (tempMsg && tempMsg.fileUrl && tempMsg.fileUrl.startsWith('blob:')) {
+              try {
+                URL.revokeObjectURL(tempMsg.fileUrl);
+              } catch (e) {
+                console.error('Error revoking object URL:', e);
+              }
+            }
+            return {
+              ...prev,
+              [msg.sessionId]: sessionMsgs.map(m => m.tempId === msg.tempId ? msg : m)
+            };
+          }
+        }
+        if (msg._id && sessionMsgs.some(m => m._id === msg._id)) return prev;
         return { ...prev, [msg.sessionId]: [...sessionMsgs, msg] };
       });
     });
@@ -1239,6 +1290,31 @@ function Chat({ isChatVisible }) {
     const formData = new FormData();
     formData.append('file', file);
 
+    const tempId = `temp-${Date.now()}-${Math.round(Math.random() * 100000)}`;
+    const localUrl = URL.createObjectURL(file);
+    const fileType = file.type.startsWith('image/') ? 'image' : 'file';
+    const targetSessionId = activeSessionId;
+
+    const tempMsg = {
+      _id: tempId,
+      tempId,
+      sessionId: targetSessionId,
+      sender: 'merchant',
+      content: '',
+      fileUrl: localUrl,
+      fileType,
+      isUploading: true,
+      timestamp: Date.now(),
+      senderId: user._id,
+      senderName: myWidgetProfile.name,
+      senderProfilePic: myWidgetProfile.profilePic || '',
+    };
+
+    setMessages(prev => {
+      const sessionMsgs = prev[targetSessionId] || [];
+      return { ...prev, [targetSessionId]: [...sessionMsgs, tempMsg] };
+    });
+
     try {
       const res = await fetch(`${SOCKET_URL}/api/upload`, {
         method: 'POST',
@@ -1246,9 +1322,9 @@ function Chat({ isChatVisible }) {
       });
       const data = await res.json();
 
-      if (data.success && socket && activeSessionId) {
+      if (data.success && socket && targetSessionId) {
         socket.emit('send_message', {
-          sessionId: activeSessionId,
+          sessionId: targetSessionId,
           sender: 'merchant',
           content: '',
           fileUrl: data.fileUrl,
@@ -1257,6 +1333,7 @@ function Chat({ isChatVisible }) {
           senderId: user._id,
           senderName: myWidgetProfile.name,
           senderProfilePic: myWidgetProfile.profilePic || '',
+          tempId,
           replyTo: replyingTo ? {
             messageId: replyingTo._id,
             content: replyingTo.content,
@@ -1266,9 +1343,22 @@ function Chat({ isChatVisible }) {
         });
         playSendSound();
         setReplyingTo(null);
+      } else {
+        setMessages(prev => {
+          const sessionMsgs = prev[targetSessionId] || [];
+          return { ...prev, [targetSessionId]: sessionMsgs.filter(m => m.tempId !== tempId) };
+        });
+        alert('Upload failed. Please try again.');
       }
     } catch (err) {
       console.error('File upload failed', err);
+      setMessages(prev => {
+        const sessionMsgs = prev[targetSessionId] || [];
+        return { ...prev, [targetSessionId]: sessionMsgs.filter(m => m.tempId !== tempId) };
+      });
+      alert('Upload failed. Please try again.');
+    } finally {
+      e.target.value = '';
     }
   };
 
@@ -1605,6 +1695,134 @@ function Chat({ isChatVisible }) {
                   </div>
                 )}
 
+                {activeSession && activeSession.isOfflineLead && (
+                  <div className="flex justify-center my-4 animate-in fade-in duration-300">
+                    <div className="w-full max-w-lg rounded-2xl border p-5 shadow-lg space-y-4"
+                      style={{ backgroundColor: '#111b21', borderColor: '#222e35' }}>
+                      
+                      {/* Card Header */}
+                      <div className="flex items-center space-x-2.5 border-b pb-3" style={{ borderColor: '#222e35' }}>
+                        <div className="w-9 h-9 rounded-full bg-[#00a884]/15 flex items-center justify-center text-[#00a884] flex-shrink-0">
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+                            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                            <polyline points="22,6 12,13 2,6" />
+                          </svg>
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-bold tracking-wide text-white uppercase leading-none">Offline Lead Query</h3>
+                          <span className="text-[10px] font-semibold text-gray-500 mt-1 block">Submitted via Offline Widget Form</span>
+                        </div>
+                      </div>
+
+                      {/* Card Content Grid */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 text-left">
+                        {/* Name */}
+                        <div className="space-y-0.5">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Visitor Name</span>
+                          <p className="text-sm font-semibold text-white truncate">{activeSession.visitorName || 'Guest'}</p>
+                        </div>
+
+                        {/* Email */}
+                        <div className="space-y-0.5">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Email Address</span>
+                          <p className="text-sm font-semibold text-white truncate">{activeSession.visitorEmail || 'Not Provided'}</p>
+                        </div>
+
+                        {/* Phone */}
+                        {activeSession.visitorPhone && (
+                          <div className="space-y-0.5">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Phone Number</span>
+                            <p className="text-sm font-semibold text-white truncate">{activeSession.visitorPhone}</p>
+                          </div>
+                        )}
+
+                        {/* Message / Details */}
+                        <div className="space-y-0.5 md:col-span-2 border-t pt-3" style={{ borderColor: '#222e35' }}>
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Message / Issue</span>
+                          <p className="text-sm leading-relaxed text-gray-200 whitespace-pre-wrap">{activeSession.visitorDetails || 'No message provided'}</p>
+                        </div>
+
+                        {/* Custom Fields */}
+                        {activeSession.offlineFields && Object.entries(
+                          activeSession.offlineFields 
+                            ? (activeSession.offlineFields instanceof Map 
+                                ? Object.fromEntries(activeSession.offlineFields) 
+                                : activeSession.offlineFields)
+                            : {}
+                        ).map(([k, v]) => {
+                          if (['name', 'email', 'phone', 'message', 'images', 'voice'].includes(k.toLowerCase())) return null;
+                          const fieldLabel = k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                          return (
+                            <div key={k} className="space-y-0.5 md:col-span-2 border-t pt-3" style={{ borderColor: '#222e35' }}>
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-[#00a884]">{fieldLabel}</span>
+                              <p className="text-sm text-gray-200">{v}</p>
+                            </div>
+                          );
+                        })}
+
+                        {/* Offline Images Previews inside card */}
+                        {(() => {
+                          const offlineFieldsObj = activeSession.offlineFields 
+                            ? (activeSession.offlineFields instanceof Map 
+                                ? Object.fromEntries(activeSession.offlineFields) 
+                                : activeSession.offlineFields)
+                            : {};
+                          const imagesStr = offlineFieldsObj.images;
+                          let imageUrls = [];
+                          if (imagesStr) {
+                            try {
+                              imageUrls = JSON.parse(imagesStr);
+                            } catch (e) {
+                              console.error('Failed to parse offline images JSON:', e);
+                            }
+                          }
+                          if (imageUrls && imageUrls.length > 0) {
+                            return (
+                              <div className="space-y-1.5 md:col-span-2 border-t pt-3" style={{ borderColor: '#222e35' }}>
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-[#00a884]">Attached Images ({imageUrls.length})</span>
+                                <div className="flex flex-wrap gap-2.5 pt-1">
+                                  {imageUrls.map((url, index) => (
+                                    <img
+                                      key={index}
+                                      src={url}
+                                      alt="Attachment Preview"
+                                      className="w-16 h-16 rounded-lg object-cover cursor-pointer hover:opacity-85 transition-opacity border"
+                                      style={{ borderColor: '#222e35' }}
+                                      onClick={() => setFullScreenImage(url)}
+                                    />
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
+
+                        {/* Offline Voice Player inside card */}
+                        {(() => {
+                          const offlineFieldsObj = activeSession.offlineFields 
+                            ? (activeSession.offlineFields instanceof Map 
+                                ? Object.fromEntries(activeSession.offlineFields) 
+                                : activeSession.offlineFields)
+                            : {};
+                          const voiceUrl = offlineFieldsObj.voice;
+                          if (voiceUrl) {
+                            return (
+                              <div className="space-y-1.5 md:col-span-2 border-t pt-3" style={{ borderColor: '#222e35' }}>
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-[#00a884]">Attached Voice Message</span>
+                                <div className="pt-1 select-none">
+                                  <AudioPlayer url={voiceUrl} />
+                                </div>
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Date separator helper */}
                 {currentMessages.map((msg, idx) => {
                   if (msg.sender === 'system') {
@@ -1753,23 +1971,44 @@ function Chat({ isChatVisible }) {
 
                             {/* File/Image/Audio attachment */}
                             {msg.fileUrl && (
-                              <div className="mb-1">
+                              <div className="relative mb-1">
                                 {msg.fileType === 'image' ? (
-                                  <img
-                                    src={msg.fileUrl}
-                                    alt="attachment"
-                                    className="max-w-full rounded-md object-cover cursor-pointer hover:opacity-90 transition-opacity"
-                                    style={{ maxHeight: '220px' }}
-                                    onClick={() => setFullScreenImage(msg.fileUrl)}
-                                  />
+                                  <div className="relative overflow-hidden rounded-md">
+                                    <img
+                                      src={msg.fileUrl}
+                                      alt="attachment"
+                                      className={`max-w-full rounded-md object-cover cursor-pointer hover:opacity-90 transition-opacity ${msg.isUploading ? 'blur-[2px] brightness-75' : ''}`}
+                                      style={{ maxHeight: '220px' }}
+                                      onClick={() => !msg.isUploading && setFullScreenImage(msg.fileUrl)}
+                                    />
+                                    {msg.isUploading && (
+                                      <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                                        <div className="w-8 h-8 border-3 border-t-transparent border-white rounded-full animate-spin"></div>
+                                      </div>
+                                    )}
+                                  </div>
                                 ) : msg.fileType === 'audio' ? (
-                                  <AudioPlayer url={msg.fileUrl} />
+                                  <div className="relative">
+                                    <div className={msg.isUploading ? 'opacity-60 pointer-events-none' : ''}>
+                                      <AudioPlayer url={msg.fileUrl} />
+                                    </div>
+                                    {msg.isUploading && (
+                                      <div className="absolute inset-0 flex items-center justify-center bg-black/10 rounded-xl">
+                                        <div className="w-6 h-6 border-2 border-t-transparent border-white rounded-full animate-spin"></div>
+                                      </div>
+                                    )}
+                                  </div>
                                 ) : (
-                                  <a href={msg.fileUrl} target="_blank" rel="noopener noreferrer"
-                                    className="flex items-center space-x-2 text-sm hover:opacity-80 transition-opacity"
-                                    style={{ color: '#53bdeb' }}>
-                                    <Paperclip size={15} /> <span>Download File</span>
-                                  </a>
+                                  <div className="relative">
+                                    <a href={msg.isUploading ? '#' : msg.fileUrl} target="_blank" rel="noopener noreferrer"
+                                      className={`flex items-center space-x-2 text-sm hover:opacity-80 transition-opacity ${msg.isUploading ? 'opacity-50 cursor-default' : ''}`}
+                                      style={{ color: '#53bdeb' }}>
+                                      <Paperclip size={15} /> <span>{msg.isUploading ? 'Uploading file...' : 'Download File'}</span>
+                                    </a>
+                                    {msg.isUploading && (
+                                      <span className="ml-2 inline-block w-3 h-3 border-2 border-t-transparent border-current rounded-full animate-spin" style={{ color: '#53bdeb' }} />
+                                    )}
+                                  </div>
                                 )}
                               </div>
                             )}
@@ -1879,7 +2118,28 @@ function Chat({ isChatVisible }) {
               </div>
 
               {/* Input Area */}
-              {activeSession.status === 'closed' ? (
+              {activeSession.isOfflineLead ? (
+                <div className="flex-shrink-0 py-6 px-4 text-center border-t flex flex-col items-center justify-center space-y-2"
+                  style={{ backgroundColor: '#202c33', borderColor: '#2a3942' }}>
+                  <p className="text-sm font-bold text-gray-300">
+                    Offline Lead Submission
+                  </p>
+                  <p className="text-xs text-[#8696a0]">
+                    Live chat replies are disabled because this message was submitted through the offline form.
+                  </p>
+                  {(activeSession.visitorEmail || activeSession.visitorPhone) ? (
+                    <p className="text-xs text-[#00a884] bg-[#00a884]/10 border border-[#00a884]/25 px-3 py-1.5 rounded-lg mt-1 max-w-md">
+                      Reach out via: {activeSession.visitorEmail && <span className="font-semibold block md:inline">Email: {activeSession.visitorEmail}</span>}
+                      {activeSession.visitorEmail && activeSession.visitorPhone && <span className="hidden md:inline"> · </span>}
+                      {activeSession.visitorPhone && <span className="font-semibold block md:inline">Phone: {activeSession.visitorPhone}</span>}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 px-3 py-1.5 rounded-lg mt-1">
+                      No contact details provided.
+                    </p>
+                  )}
+                </div>
+              ) : activeSession.status === 'closed' ? (
                 <div className="flex-shrink-0 py-5 px-4 text-center border-t"
                   style={{ backgroundColor: '#202c33', borderColor: '#2a3942' }}>
                   <p className="text-sm font-semibold" style={{ color: '#8696a0' }}>
@@ -2151,18 +2411,80 @@ function Chat({ isChatVisible }) {
                           </div>
                         ))}
                         {selectedProfileInfo.isOfflineLead && selectedProfileInfo.offlineFields && (
-                          Object.entries(selectedProfileInfo.offlineFields instanceof Map ? Object.fromEntries(selectedProfileInfo.offlineFields) : selectedProfileInfo.offlineFields).map(([k, v]) => {
-                            if (['name', 'email', 'phone', 'message'].includes(k.toLowerCase())) return null;
-                            const fieldLabel = k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-                            return (
-                              <div key={k} className="rounded-lg p-3" style={{ backgroundColor: '#202c33' }}>
-                                <span className="block text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: '#8696a0' }}>
-                                  {fieldLabel}
-                                </span>
-                                <span className="text-sm break-all" style={{ color: '#e9edef' }}>{v}</span>
-                              </div>
-                            );
-                          })
+                          <>
+                            {Object.entries(selectedProfileInfo.offlineFields instanceof Map ? Object.fromEntries(selectedProfileInfo.offlineFields) : selectedProfileInfo.offlineFields).map(([k, v]) => {
+                              if (['name', 'email', 'phone', 'message', 'images', 'voice'].includes(k.toLowerCase())) return null;
+                              const fieldLabel = k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                              return (
+                                <div key={k} className="rounded-lg p-3" style={{ backgroundColor: '#202c33' }}>
+                                  <span className="block text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: '#8696a0' }}>
+                                    {fieldLabel}
+                                  </span>
+                                  <span className="text-sm break-all" style={{ color: '#e9edef' }}>{v}</span>
+                                </div>
+                              );
+                            })}
+
+                            {/* Images in drawer */}
+                            {(() => {
+                              const offlineFieldsObj = selectedProfileInfo.offlineFields 
+                                ? (selectedProfileInfo.offlineFields instanceof Map 
+                                    ? Object.fromEntries(selectedProfileInfo.offlineFields) 
+                                    : selectedProfileInfo.offlineFields)
+                                : {};
+                              const imagesStr = offlineFieldsObj.images;
+                              let imageUrls = [];
+                              if (imagesStr) {
+                                try {
+                                  imageUrls = JSON.parse(imagesStr);
+                                } catch (e) {}
+                              }
+                              if (imageUrls && imageUrls.length > 0) {
+                                return (
+                                  <div className="rounded-lg p-3" style={{ backgroundColor: '#202c33' }}>
+                                    <span className="block text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: '#8696a0' }}>
+                                      Attached Images
+                                    </span>
+                                    <div className="flex flex-wrap gap-2 pt-1.5">
+                                      {imageUrls.map((url, index) => (
+                                        <img
+                                          key={index}
+                                          src={url}
+                                          alt="Attachment Preview"
+                                          className="w-12 h-12 rounded-lg object-cover cursor-pointer hover:opacity-85 transition-opacity border border-[#111b21]"
+                                          onClick={() => setFullScreenImage(url)}
+                                        />
+                                      ))}
+                                    </div>
+                                  </div>
+                                );
+                              }
+                              return null;
+                            })()}
+
+                            {/* Voice in drawer */}
+                            {(() => {
+                              const offlineFieldsObj = selectedProfileInfo.offlineFields 
+                                ? (selectedProfileInfo.offlineFields instanceof Map 
+                                    ? Object.fromEntries(selectedProfileInfo.offlineFields) 
+                                    : selectedProfileInfo.offlineFields)
+                                : {};
+                              const voiceUrl = offlineFieldsObj.voice;
+                              if (voiceUrl) {
+                                return (
+                                  <div className="rounded-lg p-3" style={{ backgroundColor: '#202c33' }}>
+                                    <span className="block text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: '#8696a0' }}>
+                                      Attached Voice Message
+                                    </span>
+                                    <div className="pt-1 select-none">
+                                      <AudioPlayer url={voiceUrl} />
+                                    </div>
+                                  </div>
+                                );
+                              }
+                              return null;
+                            })()}
+                          </>
                         )}
                       </>
                     ) : (
