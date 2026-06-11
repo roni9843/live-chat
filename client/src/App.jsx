@@ -1833,7 +1833,7 @@ function App({ merchantId, widgetId }) {
         className="flex-1 flex flex-col items-center justify-between p-8 text-white select-none animate-fade-in"
         style={{ backgroundColor: '#111b21' }}
       >
-        <audio ref={remoteAudioRef} className="hidden" autoPlay />
+        <audio ref={remoteAudioRef} className="hidden" autoPlay playsInline />
 
         {/* Top area: Info & Avatar */}
         <div className="flex flex-col items-center mt-8 space-y-4 w-full">
