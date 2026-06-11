@@ -20,12 +20,32 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-// Configure explicit CORS middleware
-app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
-}));
+// Configure ultra-permissive CORS middleware
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  
+  const requestHeaders = req.headers['access-control-request-headers'];
+  if (requestHeaders) {
+    res.setHeader('Access-Control-Allow-Headers', requestHeaders);
+  } else {
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Access-Control-Request-Method, Access-Control-Request-Headers');
+  }
+  
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Max-Age', '86400');
+
+  // Handle preflight OPTIONS requests immediately
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+  next();
+});
 
 app.use(express.json());
 
@@ -46,14 +66,18 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/live-chat
   .then(() => {
     console.log('Connected to MongoDB');
   }).catch(err => {
-  console.error('MongoDB connection error:', err);
-});
+    console.error('MongoDB connection error:', err);
+  });
 
-// Socket.io setup
+// Socket.io setup with fully open CORS
 const io = new Server(server, {
   cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
+    origin: (origin, callback) => {
+      // Allow all origins dynamically
+      callback(null, true);
+    },
+    methods: ["GET", "POST"],
+    credentials: true
   }
 });
 app.set('io', io);
