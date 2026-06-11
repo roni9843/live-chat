@@ -532,8 +532,17 @@ function App({ merchantId, widgetId }) {
       });
       localStreamRef.current = stream;
 
+      let iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
+      if (import.meta.env.VITE_ICE_SERVERS) {
+        try {
+          iceServers = JSON.parse(import.meta.env.VITE_ICE_SERVERS);
+        } catch (e) {
+          console.error("Failed to parse VITE_ICE_SERVERS:", e);
+        }
+      }
+
       const pc = new RTCPeerConnection({
-        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        iceServers
       });
       peerConnectionRef.current = pc;
 
