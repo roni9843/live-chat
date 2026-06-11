@@ -3,9 +3,10 @@ const http = require('http');
 const { Server } = require('socket.io');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const fs = require('fs');
+const path = require('path');
 require('dotenv').config();
 
-const path = require('path');
 const authRoutes = require('./routes/authRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const uploadRoutes = require('./routes/uploadRoutes');
@@ -13,7 +14,20 @@ const uploadRoutes = require('./routes/uploadRoutes');
 const app = express();
 const server = http.createServer(app);
 
-app.use(cors());
+// Ensure uploads directory exists
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+// Configure explicit CORS middleware
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
+}));
+app.options('*', cors()); // Enable pre-flight for all routes
+
 app.use(express.json());
 
 // Routes
@@ -47,14 +61,23 @@ app.set('io', io);
 
 require('./sockets/chatSocket')(io, app);
 
-// Routes
+// Default Route
 app.get('/', (req, res) => {
   res.send('Live Chat System API is running.');
 });
 
-// Trigger reload 3
+// Global Error Handler (to catch Multer/Server errors and return JSON with proper CORS headers)
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  res.status(err.status || 500).json({
+    success: false,
+    error: err.message || 'Internal Server Error'
+  });
+});
+
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
+
 
