@@ -107,6 +107,7 @@ const merchantSchema = new mongoose.Schema({
     start: { type: String, default: '09:00' },
     end: { type: String, default: '18:00' }
   },
+  pushTokens: [{ type: String }],
   createdAt: { type: Date, default: Date.now }
 });
 

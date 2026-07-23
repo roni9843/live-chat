@@ -11,7 +11,7 @@ const chatSessionSchema = new mongoose.Schema({
   visitorDetails: { type: String },
   visitorDomain: { type: String, default: 'Unknown' },
   visitorPath: { type: String, default: '/' },
-  visitorStatus: { type: String, enum: ['online', 'minimized', 'offline', 'active'], default: 'online' },
+  visitorStatus: { type: String, enum: ['online', 'opened', 'minimized', 'offline', 'active'], default: 'online' },
   status: { type: String, enum: ['active', 'closed'], default: 'active' },
   lastMessage: { type: String }, // Store the text of the last message
   unreadCount: { type: Number, default: 0 }, // Number of unread messages for the merchant

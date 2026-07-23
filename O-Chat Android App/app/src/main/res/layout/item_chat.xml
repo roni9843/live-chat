@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="12dp"
+    app:cardBackgroundColor="#1E1E1E"
+    app:cardCornerRadius="16dp"
+    app:cardElevation="6dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="14dp"
+        android:gravity="center_vertical">
+
+        <!-- Avatar -->
+        <FrameLayout
+            android:layout_width="48dp"
+            android:layout_height="48dp">
+
+            <ImageView
+                android:id="@+id/imgAvatar"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="#00BFA5"
+                android:src="@drawable/ic_settings"
+                android:scaleType="centerInside"
+                android:padding="10dp" />
+
+            <!-- Live status dot -->
+            <View
+                android:id="@+id/viewLiveDot"
+                android:layout_width="12dp"
+                android:layout_height="12dp"
+                android:layout_gravity="bottom|end"
+                android:background="@drawable/bg_live_dot"
+                android:visibility="gone" />
+        </FrameLayout>
+
+        <!-- Name + Message -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:layout_marginStart="14dp">
+
+            <TextView
+                android:id="@+id/tvName"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:text="Name" />
+
+            <TextView
+                android:id="@+id/tvLastMessage"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#AAAAAA"
+                android:textSize="13sp"
+                android:layout_marginTop="2dp"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:text="Last message..." />
+        </LinearLayout>
+
+        <!-- Live badge -->
+        <TextView
+            android:id="@+id/tvLiveBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="LIVE"
+            android:textColor="#FFFFFF"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:background="#CCFF3D00"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="3dp"
+            android:paddingBottom="3dp"
+            android:visibility="gone" />
+
+    </LinearLayout>
+
+</androidx.cardview.widget.CardView>

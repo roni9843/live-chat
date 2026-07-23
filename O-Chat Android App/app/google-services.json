@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "485810796935",
+    "project_id": "o-chat-cc97a",
+    "storage_bucket": "o-chat-cc97a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:485810796935:android:fdd4dd13531e236a973b22",
+        "android_client_info": {
+          "package_name": "com.ochat.mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD8vwjJTYXJmTVuaA5zt2GGaBRbjGeLShg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

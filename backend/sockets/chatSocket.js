@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const ChatSession = require('../models/ChatSession');
 const Message = require('../models/Message');
 const Merchant = require('../models/Merchant');
+const { sendPushNotifications } = require('../utils/pushNotifications');
 
 const sessionViewers = {}; // sessionId -> { socketId: { agentId, name, profilePic } }
 const connectedAgents = new Set();
@@ -144,8 +145,14 @@ module.exports = (io, app) => {
     });
 
     // Merchant fetches chat history for a specific session
-    socket.on('get_chat_history', async (sessionId) => {
+    socket.on('get_chat_history', async (data) => {
       try {
+        // Accept both plain string and object {sessionId, ...}
+        const sessionId = typeof data === 'string' ? data : (data?.sessionId || data);
+        if (!sessionId || typeof sessionId !== 'string') {
+          console.error('get_chat_history: invalid sessionId', data);
+          return;
+        }
         const messages = await Message.find({ sessionId }).sort({ timestamp: 1 });
         socket.emit('chat_history_merchant', { sessionId, messages });
       } catch (err) {
@@ -249,8 +256,46 @@ module.exports = (io, app) => {
         socket.merchantId = merchantId;
         console.log(`Visitor ${visitorId} joined room ${roomName}`);
 
-        // Notify merchant
+        // Notify merchant via socket
         await notifyMerchants(merchantId, session._id, 'new_session', session);
+
+        // Send FCM push notification — regular notification when visitor arrives (not alarm)
+        try {
+          const merchantOwner = await Merchant.findById(merchantId);
+          if (merchantOwner) {
+            const agentIds = [merchantId.toString()];
+            if (widgetId && mongoose.Types.ObjectId.isValid(widgetId)) {
+              const widgetObj = merchantOwner.widgets.id(widgetId);
+              if (widgetObj && widgetObj.authorizedUsers) {
+                widgetObj.authorizedUsers.forEach(au => {
+                  const uid = au.user ? au.user.toString() : au.toString();
+                  if (!agentIds.includes(uid)) agentIds.push(uid);
+                });
+              }
+            }
+            const visitorLabel = session.visitorName || 'New Visitor';
+            const domainLabel = session.visitorDomain || '';
+            await sendPushNotifications(
+              agentIds,
+              `👤 New Visitor: ${visitorLabel}`,
+              domainLabel ? `Visiting from ${domainLabel}` : 'A visitor has opened the chat widget',
+              {
+                sessionId: session._id.toString(),
+                screen: 'chat',
+                soundType: 'default',
+                isUnassigned: 'false',
+                visitorName: session.visitorName || '',
+                visitorEmail: session.visitorEmail || '',
+                visitorPhone: session.visitorPhone || '',
+                visitorDomain: session.visitorDomain || '',
+                visitorPath: session.visitorPath || ''
+              },
+              { android: { priority: 'high' } }
+            );
+          }
+        } catch (pushErr) {
+          console.error('Error sending new visitor push notification:', pushErr);
+        }
 
         // Send chat history to visitor
         const messages = await Message.find({ sessionId: session._id }).sort({ timestamp: 1 });
@@ -288,7 +333,8 @@ module.exports = (io, app) => {
           replyTo,
           senderId,
           senderName,
-          senderProfilePic
+          senderProfilePic,
+          status: 'unread'
         });
 
         const updateData = {
@@ -319,10 +365,70 @@ module.exports = (io, app) => {
         io.to(roomName).emit('receive_message', msgJson);
         
         // Broadcast to the merchant's global room to update sidebar and chat area
-        if (merchantId) {
-          await notifyMerchants(merchantId, sessionId, 'receive_message', msgJson);
-          await notifyMerchants(merchantId, sessionId, 'session_updated', session);
+        const currentMerchantId = merchantId || sessionObj.merchantId?.toString();
+        if (currentMerchantId) {
+          await notifyMerchants(currentMerchantId, sessionId, 'receive_message', msgJson);
+          await notifyMerchants(currentMerchantId, sessionId, 'session_updated', session);
         }
+
+        // Send FCM push notification for visitor messages
+        if (sender === 'visitor') {
+          try {
+            const pushMerchantId = currentMerchantId;
+            if (pushMerchantId) {
+              let recipientIds = [];
+              const isUnassigned = !sessionObj.assignedAgent;
+              if (isUnassigned) {
+                // Unassigned: notify all agents/admin
+                const merchantOwner = await Merchant.findById(pushMerchantId);
+                if (merchantOwner) {
+                  recipientIds.push(pushMerchantId);
+                  if (sessionObj.widgetId && mongoose.Types.ObjectId.isValid(sessionObj.widgetId)) {
+                    const widgetObj = merchantOwner.widgets.id(sessionObj.widgetId);
+                    if (widgetObj && widgetObj.authorizedUsers) {
+                      widgetObj.authorizedUsers.forEach(au => {
+                        const uid = au.user ? au.user.toString() : au.toString();
+                        if (!recipientIds.includes(uid)) recipientIds.push(uid);
+                      });
+                    }
+                  }
+                }
+              } else {
+                // Assigned: notify only the assigned agent
+                recipientIds.push(sessionObj.assignedAgent.toString());
+              }
+
+              if (recipientIds.length > 0) {
+                // First visitor message = alarm (telephone), subsequent = default
+                const prevUnread = sessionObj.unreadCount || 0;
+                const isFirstMessage = prevUnread === 0;
+                const useAlarm = isFirstMessage && isUnassigned; // Alarm ring ONLY on the first message of an unassigned session
+                const visitorLabel = sessionObj.visitorName || 'Visitor';
+                await sendPushNotifications(
+                  recipientIds,
+                  visitorLabel,
+                  content || (fileUrl ? '📎 Attachment' : 'New message'),
+                  {
+                    sessionId: sessionId.toString(),
+                    screen: 'chat',
+                    soundType: useAlarm ? 'telephone' : 'default',
+                    isUnassigned: useAlarm ? 'true' : 'false',
+                    visitorName: sessionObj.visitorName || '',
+                    visitorEmail: sessionObj.visitorEmail || '',
+                    visitorPhone: sessionObj.visitorPhone || '',
+                    visitorDomain: sessionObj.visitorDomain || '',
+                    visitorPath: sessionObj.visitorPath || '',
+                    avatarUrl: senderProfilePic || ''
+                  },
+                  { android: { priority: 'high' } }
+                );
+              }
+            }
+          } catch (pushErr) {
+            console.error('Error sending visitor message push notification:', pushErr);
+          }
+        }
+
 
       } catch (err) {
         console.error('Error saving message', err);

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/bg_gradient"
+    tools:context=".LiveTrackingActivity">
+
+    <!-- Toolbar -->
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbarLive"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@android:color/transparent"
+        android:elevation="0dp"
+        android:title="Live Tracking"
+        android:titleTextColor="@android:color/white"
+        android:navigationIcon="@drawable/ic_back"
+        app:menu="@menu/menu_live_tracking" />
+
+    <!-- RecyclerView for chat cards -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/recyclerLiveChats"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="56dp"
+        android:layout_marginBottom="56dp"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior"
+        android:padding="16dp"
+        android:clipToPadding="false" />
+
+    <!-- Bottom navigation -->
+    <com.google.android.material.bottomnavigation.BottomNavigationView
+        android:id="@+id/bottomNav"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:layout_gravity="bottom"
+        android:background="#CC121212"
+        app:itemIconTint="@color/tealAccent"
+        app:itemTextColor="@color/tealAccent"
+        app:menu="@menu/menu_bottom_nav" />
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

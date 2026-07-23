@@ -10,7 +10,7 @@ const messageSchema = new mongoose.Schema({
   fileUrl: { type: String },
   fileType: { type: String },
   timestamp: { type: Date, default: Date.now },
-  status: { type: String, enum: ['sent', 'delivered', 'read'], default: 'sent' },
+  status: { type: String, enum: ['sent', 'delivered', 'read', 'unread'], default: 'sent' },
   isDeleted: { type: Boolean, default: false },
   isEdited: { type: Boolean, default: false },
   replyTo: {
